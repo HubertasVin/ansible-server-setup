@@ -1,0 +1,88 @@
+---
+- name: Initial setup for Ubuntu Jammy with Docker and daily cron sync
+  hosts: localhost
+  become: yes
+  connection: local
+  collections:
+    - community.docker
+  vars:
+    home_dir: "/home/hubserv"
+    dav_dir: "{{ home_dir }}/dav_data"
+    docker_image: "dgraziotin/nginx-webdav-nononsense"
+    webdav_username: "hubserv"
+    webdav_password: "W4QOjUQe"
+    uid: "1000"
+    gid: "1000"
+    sync_script_path: "{{ home_dir }}/sync-dav1.sh"
+    sync_log_path: "{{ home_dir }}/sync-dav1.log"
+
+  tasks:
+    - name: Ensure apt is updated
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required packages (Docker prerequisites)
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+
+    - name: Add Docker’s official GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker apt repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker
+      apt:
+        name: docker-ce
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker service is enabled and started
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Create dav_data directory in home directory
+      file:
+        path: "{{ dav_dir }}"
+        state: directory
+        owner: "{{ uid }}"
+        group: "{{ gid }}"
+        mode: '0755'
+
+    - name: Run and ensure the docker container starts at boot
+      docker_container:
+        name: webdav
+        image: "{{ docker_image }}"
+        published_ports:
+          - "0.0.0.0:8080:80"
+        volumes:
+          - "{{ dav_dir }}:/data:Z"
+        env:
+          WEBDAV_USERNAME: "{{ webdav_username }}"
+          WEBDAV_PASSWORD: "{{ webdav_password }}"
+          PUID: "{{ uid }}"
+          PGID: "{{ gid }}"
+        restart_policy: always
+        state: started
+        detach: yes
+
+    - name: Add cron job for daily sync
+      cron:
+        name: "Daily dav sync"
+        minute: "0"
+        hour: "2"
+        job: "/bin/bash {{ sync_script_path }} >> {{ sync_log_path }} 2>&1"
+
