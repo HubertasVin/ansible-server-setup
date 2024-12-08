@@ -13,8 +13,8 @@
     webdav_password: "W4QOjUQe"
     uid: "1000"
     gid: "1000"
-    sync_script_path: "{{ home_dir }}/sync-dav1.sh"
-    sync_log_path: "{{ home_dir }}/sync-dav1.log"
+    sync_script_path: "{{ home_dir }}/sync-data.sh"
+    sync_log_path: "{{ home_dir }}/sync-data.log"
 
   tasks:
     - name: Ensure apt is updated
