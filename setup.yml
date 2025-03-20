@@ -1,5 +1,5 @@
 ---
-- name: Initial setup for Ubuntu Jammy with Docker and daily cron sync
+- name: Initial setup for Fedora 41 with Docker, BorgBackup and daily cron sync
   hosts: localhost
   become: yes
   connection: local
@@ -22,6 +22,12 @@
     borg_password: "{{ borg_repo_password }}"
 
   tasks:
+  - name: Install required package for encryption
+    dnf:
+      name: python3-passlib
+      state: present
+    when: ansible_os_family == "RedHat"
+
   - name: Create webdav user
     user:
       name: "{{ webdav_username }}"
@@ -35,10 +41,25 @@
       password: "{{ webdav_password | password_hash('sha512') }}"
       update_password: always
 
+  - name: Create BorgBackup user
+    user:
+      name: "{{ borg_user }}"
+      state: present
+      home: "/home/{{ borg_user }}"
+      shell: "/bin/bash"
+
+  - name: Set password for borguser
+    user:
+      name: "{{ borg_user }}"
+      password: "{{ borg_password | password_hash('sha512') }}"
+      update_password: always
+
   - block:
     - name: Ensure dnf cache is updated
       dnf:
         update_cache: yes
+      become: yes
+      become_user: root
       when: ansible_os_family == "RedHat"
 
     - name: Install required packages for Fedora
@@ -51,10 +72,12 @@
           - acl
           - python3-passlib
         state: present
+      become: yes
+      become_user: root
       when: ansible_os_family == "RedHat"
 
     - name: Add Docker's official repository for Fedora
-      dnf_repository:
+      yum_repository:
         name: docker-ce-stable
         description: "Docker CE Stable - $releasever"
         baseurl: "https://download.docker.com/linux/fedora/$releasever/$basearch/stable"
@@ -62,6 +85,8 @@
         gpgcheck: yes
         gpgkey: "https://download.docker.com/linux/fedora/gpg"
         state: present
+      become: yes
+      become_user: root
       when: ansible_os_family == "RedHat"
 
     - name: Install Docker
@@ -69,6 +94,8 @@
         name: docker-ce
         state: present
         update_cache: yes
+      become: yes
+      become_user: root
       when: ansible_os_family == "RedHat"
 
     - name: Ensure Docker service is enabled and started
@@ -76,6 +103,9 @@
         name: docker
         state: started
         enabled: yes
+      become: yes
+      become_user: root
+      become_method: sudo
 
     - name: Create dav_data directory in home directory
       file:
@@ -101,6 +131,8 @@
         restart_policy: always
         state: started
         detach: yes
+      become: yes
+      become_user: root
 
     - name: Add cron job for daily sync
       cron:
@@ -114,19 +146,8 @@
         name: borgbackup
         state: present
       when: ansible_os_family == "RedHat"
-
-    - name: Create BorgBackup user
-      user:
-        name: "{{ borg_user }}"
-        state: present
-        home: "/home/{{ borg_user }}"
-        shell: "/bin/bash"
-
-    - name: Set password for borguser
-      user:
-        name: "{{ borg_user }}"
-        password: "{{ borg_password | password_hash('sha512') }}"
-        update_password: always
+      become: yes
+      become_user: root
 
     - name: Create backup directory
       file:
@@ -135,6 +156,8 @@
         owner: "{{ borg_user }}"
         group: "{{ borg_user }}"
         mode: '0755'
+      become: yes
+      become_user: root
 
     - name: Initialize Borg repository
       ansible.builtin.shell: |
@@ -142,6 +165,7 @@
         borg init --encryption=repokey {{ borg_repo_path }}
       args:
         creates: "{{ borg_repo_path }}/config"
+      become: yes
       become_user: "{{ borg_user }}"
 
     - name: Set proper permissions for Borg directory
@@ -151,5 +175,8 @@
         owner: "{{ borg_user }}"
         group: "{{ borg_user }}"
         mode: '0755'
+      become: yes
+      become_user: root
+
     become: yes
     become_user: "{{ webdav_username }}"
