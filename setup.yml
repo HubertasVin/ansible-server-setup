@@ -15,38 +15,61 @@
     gid: "1000"
     sync_script_path: "{{ home_dir }}/sync-data.sh"
     sync_log_path: "{{ home_dir }}/sync-data.log"
+    borg_user: borguser
+    borg_backup_dir: "/home/{{ borg_user }}/backups"
+    borg_repo_password: "a2VE6TzNyxw5cTvu"
+    borg_repo_path: "{{ borg_backup_dir }}"
+    borg_password: "{{ borg_repo_password }}"
 
   tasks:
-    - name: Ensure apt is updated
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
+  - name: Create webdav user
+    user:
+      name: "{{ webdav_username }}"
+      state: present
+      home: "{{ home_dir }}"
+      shell: /bin/bash
 
-    - name: Install required packages (Docker prerequisites)
-      apt:
+  - name: Set password for webdav user
+    user:
+      name: "{{ webdav_username }}"
+      password: "{{ webdav_password | password_hash('sha512') }}"
+      update_password: always
+
+  - block:
+    - name: Ensure dnf cache is updated
+      dnf:
+        update_cache: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: Install required packages for Fedora
+      dnf:
         name:
-          - apt-transport-https
           - ca-certificates
           - curl
-          - gnupg
-          - lsb-release
+          - gnupg2
+          - redhat-lsb-core
+          - acl
+          - python3-passlib
         state: present
+      when: ansible_os_family == "RedHat"
 
-    - name: Add Docker’s official GPG key
-      apt_key:
-        url: https://download.docker.com/linux/ubuntu/gpg
+    - name: Add Docker's official repository for Fedora
+      dnf_repository:
+        name: docker-ce-stable
+        description: "Docker CE Stable - $releasever"
+        baseurl: "https://download.docker.com/linux/fedora/$releasever/$basearch/stable"
+        enabled: yes
+        gpgcheck: yes
+        gpgkey: "https://download.docker.com/linux/fedora/gpg"
         state: present
-
-    - name: Add Docker apt repository
-      apt_repository:
-        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
-        state: present
+      when: ansible_os_family == "RedHat"
 
     - name: Install Docker
-      apt:
+      dnf:
         name: docker-ce
         state: present
         update_cache: yes
+      when: ansible_os_family == "RedHat"
 
     - name: Ensure Docker service is enabled and started
       service:
@@ -86,3 +109,47 @@
         hour: "2"
         job: "/bin/bash {{ sync_script_path }} >> {{ sync_log_path }} 2>&1"
 
+    - name: Install BorgBackup (RedHat-based)
+      dnf:
+        name: borgbackup
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Create BorgBackup user
+      user:
+        name: "{{ borg_user }}"
+        state: present
+        home: "/home/{{ borg_user }}"
+        shell: "/bin/bash"
+
+    - name: Set password for borguser
+      user:
+        name: "{{ borg_user }}"
+        password: "{{ borg_password | password_hash('sha512') }}"
+        update_password: always
+
+    - name: Create backup directory
+      file:
+        path: "{{ borg_backup_dir }}"
+        state: directory
+        owner: "{{ borg_user }}"
+        group: "{{ borg_user }}"
+        mode: '0755'
+
+    - name: Initialize Borg repository
+      ansible.builtin.shell: |
+        export BORG_PASSPHRASE={{ borg_repo_password }}
+        borg init --encryption=repokey {{ borg_repo_path }}
+      args:
+        creates: "{{ borg_repo_path }}/config"
+      become_user: "{{ borg_user }}"
+
+    - name: Set proper permissions for Borg directory
+      file:
+        path: "{{ borg_backup_dir }}"
+        recurse: yes
+        owner: "{{ borg_user }}"
+        group: "{{ borg_user }}"
+        mode: '0755'
+    become: yes
+    become_user: "{{ webdav_username }}"
