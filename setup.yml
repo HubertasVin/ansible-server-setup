@@ -9,8 +9,8 @@
     home_dir: "/home/hubserv"
     dav_dir: "{{ home_dir }}/dav_data"
     docker_image: "dgraziotin/nginx-webdav-nononsense"
-    webdav_username: "hubserv"
-    webdav_password: "W4QOjUQe"
+    hubserv_username: "hubserv"
+    hubserv_password: "W4QOjUQe"
     uid: "1000"
     gid: "1000"
     sync_script_path: "{{ home_dir }}/sync-data.sh"
@@ -30,15 +30,15 @@
 
   - name: Create webdav user
     user:
-      name: "{{ webdav_username }}"
+      name: "{{ hubserv_username }}"
       state: present
       home: "{{ home_dir }}"
       shell: /bin/bash
 
   - name: Set password for webdav user
     user:
-      name: "{{ webdav_username }}"
-      password: "{{ webdav_password | password_hash('sha512') }}"
+      name: "{{ hubserv_username }}"
+      password: "{{ hubserv_password | password_hash('sha512') }}"
       update_password: always
 
   - name: Create BorgBackup user
@@ -124,8 +124,8 @@
         volumes:
           - "{{ dav_dir }}:/data:Z"
         env:
-          WEBDAV_USERNAME: "{{ webdav_username }}"
-          WEBDAV_PASSWORD: "{{ webdav_password }}"
+          WEBDAV_USERNAME: "{{ hubserv_username }}"
+          WEBDAV_PASSWORD: "{{ hubserv_password }}"
           PUID: "{{ uid }}"
           PGID: "{{ gid }}"
         restart_policy: always
@@ -179,4 +179,4 @@
       become_user: root
 
     become: yes
-    become_user: "{{ webdav_username }}"
+    become_user: "{{ hubserv_username }}"
