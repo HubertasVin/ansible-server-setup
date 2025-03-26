@@ -3,42 +3,75 @@
   hosts: localhost
   become: yes
   connection: local
+  vars_files:
+    - secrets.yml
   collections:
     - community.docker
   vars:
-    home_dir: "/home/hubserv"
-    dav_dir: "{{ home_dir }}/dav_data"
     docker_image: "dgraziotin/nginx-webdav-nononsense"
-    hubserv_username: "hubserv"
-    hubserv_password: "W4QOjUQe"
+    server_main_user: "hubserv"
+    home_dir: "/home/{{ server_main_user }}"
+    dav_dir: "{{ home_dir }}/dav_data"
     uid: "1000"
     gid: "1000"
     sync_script_path: "{{ home_dir }}/sync-data.sh"
     sync_log_path: "{{ home_dir }}/sync-data.log"
     borg_user: borguser
-    borg_backup_dir: "/home/{{ borg_user }}/backups"
-    borg_repo_password: "a2VE6TzNyxw5cTvu"
-    borg_repo_path: "{{ borg_backup_dir }}"
     borg_password: "{{ borg_repo_password }}"
+    borg_backup_dir: "/home/{{ borg_user }}/backups"
+    borg_repo_path: "{{ borg_backup_dir }}"
 
   tasks:
-  - name: Install required package for encryption
-    dnf:
-      name: python3-passlib
+  #INFO: Install and setup apps
+  - name: Add Docker's official repository for Fedora
+    yum_repository:
+      name: docker-ce-stable
+      description: "Docker CE Stable - $releasever"
+      baseurl: "https://download.docker.com/linux/fedora/$releasever/$basearch/stable"
+      enabled: yes
+      gpgcheck: yes
+      gpgkey: "https://download.docker.com/linux/fedora/gpg"
       state: present
     when: ansible_os_family == "RedHat"
 
+  - name: Install required packages for Fedora
+    dnf:
+      name:
+        - ca-certificates
+        - curl
+        - gnupg2
+        - redhat-lsb-core
+        - acl
+        - python3-passlib
+        - docker-ce
+        - borgbackup
+      state: present
+      update_cache: yes
+    when: ansible_os_family == "RedHat"
+
+  - name: Ensure dnf cache is updated
+    dnf:
+      update_cache: yes
+    when: ansible_os_family == "RedHat"
+
+  - name: Ensure Docker service is enabled and started
+    service:
+      name: docker
+      state: started
+      enabled: yes
+
+  #INFO: Create users
   - name: Create webdav user
     user:
-      name: "{{ hubserv_username }}"
+      name: "{{ server_main_user }}"
       state: present
       home: "{{ home_dir }}"
       shell: /bin/bash
 
   - name: Set password for webdav user
     user:
-      name: "{{ hubserv_username }}"
-      password: "{{ hubserv_password | password_hash('sha512') }}"
+      name: "{{ server_main_user }}"
+      password: "{{ server_main_password | password_hash('sha512') }}"
       update_password: always
 
   - name: Create BorgBackup user
@@ -55,58 +88,6 @@
       update_password: always
 
   - block:
-    - name: Ensure dnf cache is updated
-      dnf:
-        update_cache: yes
-      become: yes
-      become_user: root
-      when: ansible_os_family == "RedHat"
-
-    - name: Install required packages for Fedora
-      dnf:
-        name:
-          - ca-certificates
-          - curl
-          - gnupg2
-          - redhat-lsb-core
-          - acl
-          - python3-passlib
-        state: present
-      become: yes
-      become_user: root
-      when: ansible_os_family == "RedHat"
-
-    - name: Add Docker's official repository for Fedora
-      yum_repository:
-        name: docker-ce-stable
-        description: "Docker CE Stable - $releasever"
-        baseurl: "https://download.docker.com/linux/fedora/$releasever/$basearch/stable"
-        enabled: yes
-        gpgcheck: yes
-        gpgkey: "https://download.docker.com/linux/fedora/gpg"
-        state: present
-      become: yes
-      become_user: root
-      when: ansible_os_family == "RedHat"
-
-    - name: Install Docker
-      dnf:
-        name: docker-ce
-        state: present
-        update_cache: yes
-      become: yes
-      become_user: root
-      when: ansible_os_family == "RedHat"
-
-    - name: Ensure Docker service is enabled and started
-      service:
-        name: docker
-        state: started
-        enabled: yes
-      become: yes
-      become_user: root
-      become_method: sudo
-
     - name: Create dav_data directory in home directory
       file:
         path: "{{ dav_dir }}"
@@ -124,8 +105,8 @@
         volumes:
           - "{{ dav_dir }}:/data:Z"
         env:
-          WEBDAV_USERNAME: "{{ hubserv_username }}"
-          WEBDAV_PASSWORD: "{{ hubserv_password }}"
+          WEBDAV_USERNAME: "{{ server_main_user }}"
+          WEBDAV_PASSWORD: "{{ server_main_password }}"
           PUID: "{{ uid }}"
           PGID: "{{ gid }}"
         restart_policy: always
@@ -141,13 +122,13 @@
         hour: "2"
         job: "/bin/bash {{ sync_script_path }} >> {{ sync_log_path }} 2>&1"
 
-    - name: Install BorgBackup (RedHat-based)
-      dnf:
-        name: borgbackup
-        state: present
-      when: ansible_os_family == "RedHat"
+    - name: Replace placeholder with actual webdav_username in sync_data.sh
+      replace:
+        path: "{{ home_dir }}/sync_data.sh"
+        regexp: 'insert-user-name-here'
+        replace: "{{ server_main_user }}"
       become: yes
-      become_user: root
+      become_user: "{{ server_main_user }}"
 
     - name: Create backup directory
       file:
@@ -179,4 +160,4 @@
       become_user: root
 
     become: yes
-    become_user: "{{ hubserv_username }}"
+    become_user: "{{ server_main_user }}"
