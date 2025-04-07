@@ -74,6 +74,15 @@
       password: "{{ server_main_password | password_hash('sha512') }}"
       update_password: always
 
+  - name: Allow webdav user to run all commands with sudo without a password
+    copy:
+      dest: "/etc/sudoers.d/{{ server_main_user }}"
+      content: "{{ server_main_user }} ALL=(ALL) NOPASSWD:ALL"
+      owner: root
+      group: root
+      mode: '0440'
+    become: yes
+
   - name: Create BorgBackup user
     user:
       name: "{{ borg_user }}"
