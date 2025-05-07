@@ -241,6 +241,13 @@
       args:
         creates: /etc/letsencrypt/live/jelly.hubertasvin.eu/fullchain.pem
 
+    - name: Obtain Let's Encrypt certificate for immich.hubertasvin.eu
+      shell: |
+        certbot --nginx -d immich.hubertasvin.eu \
+          --non-interactive --agree-tos --email "{{ certbot_email }}"
+      args:
+        creates: /etc/letsencrypt/live/immich.hubertasvin.eu/fullchain.pem
+
     - name: Restart nginx to pick up new SSL config
       service:
         name: nginx
