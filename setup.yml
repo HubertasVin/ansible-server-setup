@@ -96,6 +96,27 @@
       password: "{{ borg_password | password_hash('sha512') }}"
       update_password: always
 
+  # ────────────────────────────────────────────────────────────────────────────
+  # Give user access to Docker socket and run Immich installer
+  # ────────────────────────────────────────────────────────────────────────────
+  - name: Ensure docker group exists
+    group:
+      name: docker
+      state: present
+
+  - name: Add {{ server_main_user }} to docker group
+    user:
+      name: "{{ server_main_user }}"
+      groups: docker
+      append: yes
+
+  - name: Refresh group membership for {{ server_main_user }}
+    shell: exec newgrp docker
+    args:
+      executable: /bin/bash
+    become: yes
+    become_user: "{{ server_main_user }}"
+
   - block:
     - name: Create dav_data directory in home directory
       file:
@@ -232,5 +253,14 @@
           state: reloaded
 
 
+    become: yes
+    become_user: "{{ server_main_user }}"
+
+
+  - name: Install Immich via official script
+    shell: |
+      curl -o- https://raw.githubusercontent.com/immich-app/immich/main/install.sh | bash
+    args:
+      chdir: "{{ home_dir }}"
     become: yes
     become_user: "{{ server_main_user }}"
