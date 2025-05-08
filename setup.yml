@@ -212,6 +212,36 @@
         group: root
         mode: '0644'
 
+    - name: Deploy nginx proxy config for immich.hubertasvin.eu
+      copy:
+        dest: /etc/nginx/conf.d/immich.hubertasvin.eu.conf
+        content: |
+          server {
+              server_name immich.hubertasvin.eu;
+              client_max_body_size 5000M;
+
+              proxy_set_header Host              $http_host;
+              proxy_set_header X-Real-IP         $remote_addr;
+              proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+
+              proxy_read_timeout  600s;
+              proxy_send_timeout  600s;
+              send_timeout        600s;
+
+              location / {
+                  proxy_pass http://127.0.0.1:2283;
+              }
+
+              # allow ACME challenges
+              location = /.well-known/immich {
+                  proxy_pass http://127.0.0.1:2283;
+              }
+          }
+      owner: root
+      group: root
+      mode: '0644'
+
     - name: Ensure firewalld is enabled and running
       service:
         name: firewalld
