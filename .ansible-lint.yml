@@ -1,0 +1,13 @@
+profile: production
+use_default_rules: true
+
+exclude_paths:
+  - .git
+  - node_modules
+  - api/**/bin
+  - api/**/obj
+  - frontend/node_modules
+
+skip_list:
+  - command-instead-of-shell
+  - risky-shell-pipe

@@ -1,12 +1,11 @@
 ---
 - name: Fedora host bootstrap + WebDAV + Reverse proxies + StockDataAggregator deploy
   hosts: localhost
-  become: yes
+  become: true
   connection: local
   vars_files:
-    - secrets.yml
-  collections:
-    - community.docker
+    # Default to dev secrets so lint & syntax-check do not require vault
+    - "{{ secrets_file | default('secrets.dev.yml') }}"
 
   vars:
     # ── Core users/paths ──────────────────────────────────────────────────────
@@ -33,21 +32,21 @@
     stock_repo_version: "main"
 
   pre_tasks:
-    # === SECTION: Packages & services =======================================
+    # ========== SECTION: Packages & services ==========
     - name: Add Docker CE repo (Fedora)
-      yum_repository:
+      ansible.builtin.yum_repository:
         name: docker-ce-stable
         description: "Docker CE Stable - $releasever"
         baseurl: "https://download.docker.com/linux/fedora/$releasever/$basearch/stable"
-        enabled: yes
-        gpgcheck: yes
+        enabled: true
+        gpgcheck: true
         gpgkey: "https://download.docker.com/linux/fedora/gpg"
         state: present
       when: ansible_os_family == "RedHat"
       tags: [packages]
 
     - name: Install base packages (Fedora)
-      dnf:
+      ansible.builtin.dnf:
         name:
           - ca-certificates
           - curl
@@ -62,24 +61,24 @@
           - certbot
           - python3-certbot-nginx
         state: present
-        update_cache: yes
+        update_cache: true
       when: ansible_os_family == "RedHat"
       tags: [packages]
 
     - name: Enable/start Docker & Nginx
-      service:
+      ansible.builtin.service:
         name: "{{ item }}"
         state: started
-        enabled: yes
+        enabled: true
       loop:
         - docker
         - nginx
       tags: [services]
 
   tasks:
-    # === SECTION: Users & permissions ========================================
+    # ========== SECTION: Users & permissions ==========
     - name: Ensure main user exists
-      user:
+      ansible.builtin.user:
         name: "{{ server_main_user }}"
         state: present
         home: "{{ home_dir }}"
@@ -87,14 +86,15 @@
       tags: [users]
 
     - name: Set password for main user
-      user:
+      ansible.builtin.user:
         name: "{{ server_main_user }}"
         password: "{{ server_main_password | password_hash('sha512') }}"
         update_password: always
+      no_log: true
       tags: [users]
 
-    - name: Allow {{ server_main_user }} passwordless sudo
-      copy:
+    - name: Allow passwordless sudo for user {{ server_main_user }}
+      ansible.builtin.copy:
         dest: "/etc/sudoers.d/{{ server_main_user }}"
         content: "{{ server_main_user }} ALL=(ALL) NOPASSWD:ALL"
         owner: root
@@ -103,36 +103,37 @@
       tags: [users]
 
     - name: Ensure borg user exists
-      user:
+      ansible.builtin.user:
         name: "{{ borg_user }}"
         state: present
         home: "/home/{{ borg_user }}"
         shell: "/bin/bash"
-      tags: [users,borg]
+      tags: [users, borg]
 
     - name: Set password for borg user
-      user:
+      ansible.builtin.user:
         name: "{{ borg_user }}"
         password: "{{ borg_password | password_hash('sha512') }}"
         update_password: always
-      tags: [users,borg]
+      no_log: true
+      tags: [users, borg]
 
-    - name: Ensure docker group exists and assign main user
-      group:
+    - name: Ensure docker group exists
+      ansible.builtin.group:
         name: docker
         state: present
-      tags: [users,docker]
+      tags: [users, docker]
 
-    - name: Add {{ server_main_user }} to docker group
-      user:
+    - name: Add user to docker group - {{ server_main_user }}
+      ansible.builtin.user:
         name: "{{ server_main_user }}"
         groups: docker
-        append: yes
-      tags: [users,docker]
+        append: true
+      tags: [users, docker]
 
-    # === SECTION: WebDAV container ===========================================
+    # ========== SECTION: WebDAV container ==========
     - name: Create WebDAV data dir
-      file:
+      ansible.builtin.file:
         path: "{{ dav_dir }}"
         state: directory
         owner: "{{ uid }}"
@@ -155,11 +156,12 @@
           PGID: "{{ gid }}"
         restart_policy: always
         state: started
-        detach: yes
-      tags: [webdav,docker]
+        detach: true
+      no_log: true
+      tags: [webdav, docker]
 
     - name: Add cron job for daily WebDAV sync
-      cron:
+      ansible.builtin.cron:
         name: "Daily dav sync"
         minute: "0"
         hour: "2"
@@ -167,15 +169,15 @@
       tags: [webdav]
 
     - name: Replace username placeholder in sync script
-      replace:
+      ansible.builtin.replace:
         path: "{{ sync_script_path }}"
         regexp: 'insert-user-name-here'
         replace: "{{ server_main_user }}"
       tags: [webdav]
 
-    # === SECTION: Borg backup ================================================
+    # ========== SECTION: Borg backup ==========
     - name: Ensure borg backup dir exists
-      file:
+      ansible.builtin.file:
         path: "{{ borg_backup_dir }}"
         state: directory
         owner: "{{ borg_user }}"
@@ -184,50 +186,56 @@
       tags: [borg]
 
     - name: Init borg repository (one-time)
-      shell: |
-        export BORG_PASSPHRASE={{ borg_repo_password }}
+      become: true
+      become_user: "{{ borg_user }}"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export BORG_PASSPHRASE='{{ borg_repo_password }}'
         borg init --encryption=repokey {{ borg_repo_path }}
       args:
         creates: "{{ borg_repo_path }}/config"
-      become_user: "{{ borg_user }}"
+      no_log: true
       tags: [borg]
 
     - name: Fix permissions for borg repo
-      file:
+      ansible.builtin.file:
         path: "{{ borg_backup_dir }}"
-        recurse: yes
+        recurse: true
         owner: "{{ borg_user }}"
         group: "{{ borg_user }}"
         mode: '0755'
       tags: [borg]
 
-    # === SECTION: Firewall & SELinux =========================================
+    # ========== SECTION: Firewall & SELinux ==========
     - name: Ensure firewalld is enabled and running
-      service:
+      ansible.builtin.service:
         name: firewalld
         state: started
-        enabled: yes
+        enabled: true
       tags: [firewall]
 
     - name: Open HTTP/HTTPS
-      firewalld:
+      ansible.posix.firewalld:
         service: "{{ item }}"
-        permanent: yes
+        permanent: true
         state: enabled
-      loop: [http, https]
+        immediate: true
+      loop:
+        - http
+        - https
       notify: Reload firewalld
       tags: [firewall]
 
     - name: Allow nginx outbound network (SELinux)
-      seboolean:
+      ansible.posix.seboolean:
         name: httpd_can_network_connect
         state: true
-        persistent: yes
+        persistent: true
       tags: [selinux]
 
-    # === SECTION: Nginx reverse proxies (HTTP) ================================
+    # ========== SECTION: Nginx reverse proxies (HTTP) ==========
     - name: Proxy for {{ jelly_domain }}
-      copy:
+      ansible.builtin.copy:
         dest: /etc/nginx/conf.d/{{ jelly_domain }}.conf
         mode: '0644'
         content: |
@@ -247,7 +255,7 @@
       tags: [nginx]
 
     - name: Proxy for {{ immich_domain }}
-      copy:
+      ansible.builtin.copy:
         dest: /etc/nginx/conf.d/{{ immich_domain }}.conf
         mode: '0644'
         content: |
@@ -276,7 +284,7 @@
       tags: [nginx]
 
     - name: Proxy for {{ stock_domain }}
-      copy:
+      ansible.builtin.copy:
         dest: "/etc/nginx/conf.d/{{ stock_domain }}.conf"
         mode: '0644'
         content: |
@@ -297,46 +305,70 @@
       tags: [nginx]
 
     - name: Test nginx config
-      shell: nginx -t
+      ansible.builtin.command: nginx -t
       register: nginx_test
       changed_when: false
       failed_when: nginx_test.rc != 0
       tags: [nginx]
 
-    # === SECTION: TLS via certbot (nginx plugin) ==============================
+    # ========== SECTION: TLS via certbot (nginx plugin) ==========
     - name: Issue cert for {{ jelly_domain }}
-      shell: |
-        certbot --nginx -d {{ jelly_domain }} \
-          --non-interactive --agree-tos --email "{{ certbot_email }}" --redirect
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - --nginx
+          - -d
+          - "{{ jelly_domain }}"
+          - --non-interactive
+          - --agree-tos
+          - --email
+          - "{{ certbot_email }}"
+          - --redirect
       args:
-        creates: /etc/letsencrypt/live/{{ jelly_domain }}/fullchain.pem
+        creates: "/etc/letsencrypt/live/{{ jelly_domain }}/fullchain.pem"
       tags: [tls]
 
     - name: Issue cert for {{ immich_domain }}
-      shell: |
-        certbot --nginx -d {{ immich_domain }} \
-          --non-interactive --agree-tos --email "{{ certbot_email }}" --redirect
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - --nginx
+          - -d
+          - "{{ immich_domain }}"
+          - --non-interactive
+          - --agree-tos
+          - --email
+          - "{{ certbot_email }}"
+          - --redirect
       args:
-        creates: /etc/letsencrypt/live/{{ immich_domain }}/fullchain.pem
+        creates: "/etc/letsencrypt/live/{{ immich_domain }}/fullchain.pem"
       tags: [tls]
 
     - name: Issue cert for {{ stock_domain }}
-      shell: |
-        certbot --nginx -d {{ stock_domain }} \
-          --non-interactive --agree-tos --email "{{ certbot_email }}" --redirect
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - --nginx
+          - -d
+          - "{{ stock_domain }}"
+          - --non-interactive
+          - --agree-tos
+          - --email
+          - "{{ certbot_email }}"
+          - --redirect
       args:
         creates: "/etc/letsencrypt/live/{{ stock_domain }}/fullchain.pem"
       tags: [tls]
 
     - name: Restart nginx after TLS issuance
-      service:
+      ansible.builtin.service:
         name: nginx
         state: restarted
-      tags: [nginx,tls]
+      tags: [nginx, tls]
 
-    # === SECTION: Clone & deploy StockDataAggregator ==========================
-    - name: Ensure /home/{{ server_main_user }}/apps exists
-      file:
+    # ========== SECTION: Clone & deploy StockDataAggregator ==========
+    - name: Ensure apps directory exists - {{ home_dir ~ '/apps' }}
+      ansible.builtin.file:
         path: "/home/{{ server_main_user }}/apps"
         state: directory
         owner: "{{ server_main_user }}"
@@ -344,28 +376,29 @@
         mode: '0755'
       tags: [stockdata]
 
-    - name: Clone/pull StockDataAggregator
+    - name: Clone/pull StockDataAggregator ({{ stock_repo_version }})
+      become: true
       become_user: "{{ server_main_user }}"
-      git:
+      ansible.builtin.git:
         repo: "{{ stock_repo_url }}"
         dest: "{{ stock_repo_dir }}"
         version: "{{ stock_repo_version | default('main') }}"
-        update: yes
-        force: yes
-        accept_hostkey: yes
-      tags: [stockdata,git]
+        update: true
+        force: true
+        accept_hostkey: true
+      tags: [stockdata, git]
 
     - name: Fix ownership for repo tree
-      file:
+      ansible.builtin.file:
         path: "{{ stock_repo_dir }}"
         state: directory
-        recurse: yes
+        recurse: true
         owner: "{{ server_main_user }}"
         group: "{{ server_main_user }}"
       tags: [stockdata]
 
     - name: Write deploy api.env for compose
-      copy:
+      ansible.builtin.copy:
         dest: "{{ stock_repo_dir }}/deploy/api.env"
         owner: "{{ server_main_user }}"
         group: "{{ server_main_user }}"
@@ -385,33 +418,37 @@
           Jwt__Password={{ stock_jwt_password }}
 
           ConnectionStrings__Default=Host=db;Database={{ stock_pg_db }};Username={{ stock_pg_user }};Password={{ stock_pg_password }}
-      tags: [stockdata,compose]
+      no_log: true
+      tags: [stockdata, compose]
 
-    - name: docker compose up -d (build+run)
+    - name: Run Docker Compose (build+run)
       community.docker.docker_compose_v2:
         project_src: "{{ stock_repo_dir }}/deploy"
-        build: true
+        build: always
         state: present
         remove_orphans: true
-      tags: [stockdata,compose]
+      tags: [stockdata, compose]
 
-    # === SECTION: Optional – Immich one-liner installer ======================
+    # ========== SECTION: Optional – Immich installer ==========
     - name: Install Immich (official script)
-      shell: |
-        curl -o- https://raw.githubusercontent.com/immich-app/immich/main/install.sh | bash
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsSL https://raw.githubusercontent.com/immich-app/immich/main/install.sh | bash
       args:
         chdir: "{{ home_dir }}"
-      become_user: "{{ server_main_user }}"
-      tags: [immich]
+      changed_when: false
       when: immich_install | default(false) | bool
+      tags: [immich]
 
   handlers:
     - name: Reload firewalld
-      service:
+      ansible.builtin.service:
         name: firewalld
         state: reloaded
 
     - name: Reload nginx
-      service:
+      ansible.builtin.service:
         name: nginx
         state: reloaded
