@@ -1,5 +1,5 @@
 ---
-- name: Initial setup for Fedora 41 with Docker, BorgBackup and daily cron sync
+- name: Fedora host bootstrap + WebDAV + Reverse proxies + StockDataAggregator deploy
   hosts: localhost
   become: yes
   connection: local
@@ -7,127 +7,141 @@
     - secrets.yml
   collections:
     - community.docker
+
   vars:
-    docker_image: "dgraziotin/nginx-webdav-nononsense"
+    # ── Core users/paths ──────────────────────────────────────────────────────
     server_main_user: "hubserv"
     home_dir: "/home/{{ server_main_user }}"
-    dav_dir: "{{ home_dir }}/dav_data"
     uid: "1000"
     gid: "1000"
+
+    # ── WebDAV ────────────────────────────────────────────────────────────────
+    docker_image: "dgraziotin/nginx-webdav-nononsense"
+    dav_dir: "{{ home_dir }}/dav_data"
     sync_script_path: "{{ home_dir }}/sync-data.sh"
     sync_log_path: "{{ home_dir }}/sync-data.log"
+
+    # ── Borg backup ───────────────────────────────────────────────────────────
     borg_user: borguser
     borg_password: "{{ borg_repo_password }}"
     borg_backup_dir: "/home/{{ borg_user }}/backups"
     borg_repo_path: "{{ borg_backup_dir }}"
 
+    # ── StockDataAggregator repo/deploy ───────────────────────────────────────
+    stock_repo_url: "https://github.com/HubertasVin/stock-data-aggregator.git"
+    stock_repo_dir: "/home/{{ server_main_user }}/apps/stockdata"
+    stock_repo_version: "main"
+
+  pre_tasks:
+    # === SECTION: Packages & services =======================================
+    - name: Add Docker CE repo (Fedora)
+      yum_repository:
+        name: docker-ce-stable
+        description: "Docker CE Stable - $releasever"
+        baseurl: "https://download.docker.com/linux/fedora/$releasever/$basearch/stable"
+        enabled: yes
+        gpgcheck: yes
+        gpgkey: "https://download.docker.com/linux/fedora/gpg"
+        state: present
+      when: ansible_os_family == "RedHat"
+      tags: [packages]
+
+    - name: Install base packages (Fedora)
+      dnf:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg2
+          - redhat-lsb-core
+          - acl
+          - python3-passlib
+          - docker-ce
+          - borgbackup
+          - git
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "RedHat"
+      tags: [packages]
+
+    - name: Enable/start Docker & Nginx
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - docker
+        - nginx
+      tags: [services]
+
   tasks:
-  #INFO: Install and setup apps
-  - name: Add Docker's official repository for Fedora
-    yum_repository:
-      name: docker-ce-stable
-      description: "Docker CE Stable - $releasever"
-      baseurl: "https://download.docker.com/linux/fedora/$releasever/$basearch/stable"
-      enabled: yes
-      gpgcheck: yes
-      gpgkey: "https://download.docker.com/linux/fedora/gpg"
-      state: present
-    when: ansible_os_family == "RedHat"
+    # === SECTION: Users & permissions ========================================
+    - name: Ensure main user exists
+      user:
+        name: "{{ server_main_user }}"
+        state: present
+        home: "{{ home_dir }}"
+        shell: /bin/bash
+      tags: [users]
 
-  - name: Install required packages for Fedora
-    dnf:
-      name:
-        - ca-certificates
-        - curl
-        - gnupg2
-        - redhat-lsb-core
-        - acl
-        - python3-passlib
-        - docker-ce
-        - borgbackup
-      state: present
-      update_cache: yes
-    when: ansible_os_family == "RedHat"
+    - name: Set password for main user
+      user:
+        name: "{{ server_main_user }}"
+        password: "{{ server_main_password | password_hash('sha512') }}"
+        update_password: always
+      tags: [users]
 
-  - name: Ensure dnf cache is updated
-    dnf:
-      update_cache: yes
-    when: ansible_os_family == "RedHat"
+    - name: Allow {{ server_main_user }} passwordless sudo
+      copy:
+        dest: "/etc/sudoers.d/{{ server_main_user }}"
+        content: "{{ server_main_user }} ALL=(ALL) NOPASSWD:ALL"
+        owner: root
+        group: root
+        mode: '0440'
+      tags: [users]
 
-  - name: Ensure Docker service is enabled and started
-    service:
-      name: docker
-      state: started
-      enabled: yes
+    - name: Ensure borg user exists
+      user:
+        name: "{{ borg_user }}"
+        state: present
+        home: "/home/{{ borg_user }}"
+        shell: "/bin/bash"
+      tags: [users,borg]
 
-  #INFO: Create users
-  - name: Create webdav user
-    user:
-      name: "{{ server_main_user }}"
-      state: present
-      home: "{{ home_dir }}"
-      shell: /bin/bash
+    - name: Set password for borg user
+      user:
+        name: "{{ borg_user }}"
+        password: "{{ borg_password | password_hash('sha512') }}"
+        update_password: always
+      tags: [users,borg]
 
-  - name: Set password for webdav user
-    user:
-      name: "{{ server_main_user }}"
-      password: "{{ server_main_password | password_hash('sha512') }}"
-      update_password: always
+    - name: Ensure docker group exists and assign main user
+      group:
+        name: docker
+        state: present
+      tags: [users,docker]
 
-  - name: Allow webdav user to run all commands with sudo without a password
-    copy:
-      dest: "/etc/sudoers.d/{{ server_main_user }}"
-      content: "{{ server_main_user }} ALL=(ALL) NOPASSWD:ALL"
-      owner: root
-      group: root
-      mode: '0440'
-    become: yes
+    - name: Add {{ server_main_user }} to docker group
+      user:
+        name: "{{ server_main_user }}"
+        groups: docker
+        append: yes
+      tags: [users,docker]
 
-  - name: Create BorgBackup user
-    user:
-      name: "{{ borg_user }}"
-      state: present
-      home: "/home/{{ borg_user }}"
-      shell: "/bin/bash"
-
-  - name: Set password for borguser
-    user:
-      name: "{{ borg_user }}"
-      password: "{{ borg_password | password_hash('sha512') }}"
-      update_password: always
-
-  # ────────────────────────────────────────────────────────────────────────────
-  # Give user access to Docker socket and run Immich installer
-  # ────────────────────────────────────────────────────────────────────────────
-  - name: Ensure docker group exists
-    group:
-      name: docker
-      state: present
-
-  - name: Add {{ server_main_user }} to docker group
-    user:
-      name: "{{ server_main_user }}"
-      groups: docker
-      append: yes
-
-  - name: Refresh group membership for {{ server_main_user }}
-    shell: exec newgrp docker
-    args:
-      executable: /bin/bash
-    become: yes
-    become_user: "{{ server_main_user }}"
-
-  - block:
-    - name: Create dav_data directory in home directory
+    # === SECTION: WebDAV container ===========================================
+    - name: Create WebDAV data dir
       file:
         path: "{{ dav_dir }}"
         state: directory
         owner: "{{ uid }}"
         group: "{{ gid }}"
         mode: '0755'
+      tags: [webdav]
 
-    - name: Run and ensure the docker container starts at boot
-      docker_container:
+    - name: Run WebDAV container
+      community.docker.docker_container:
         name: webdav
         image: "{{ docker_image }}"
         published_ports:
@@ -142,62 +156,83 @@
         restart_policy: always
         state: started
         detach: yes
-      become: yes
-      become_user: root
+      tags: [webdav,docker]
 
-    - name: Add cron job for daily sync
+    - name: Add cron job for daily WebDAV sync
       cron:
         name: "Daily dav sync"
         minute: "0"
         hour: "2"
         job: "/bin/bash {{ sync_script_path }} >> {{ sync_log_path }} 2>&1"
+      tags: [webdav]
 
-    - name: Replace placeholder with actual webdav_username in sync_data.sh
+    - name: Replace username placeholder in sync script
       replace:
-        path: "{{ home_dir }}/sync_data.sh"
+        path: "{{ sync_script_path }}"
         regexp: 'insert-user-name-here'
         replace: "{{ server_main_user }}"
-      become: yes
-      become_user: "{{ server_main_user }}"
+      tags: [webdav]
 
-    - name: Create backup directory
+    # === SECTION: Borg backup ================================================
+    - name: Ensure borg backup dir exists
       file:
         path: "{{ borg_backup_dir }}"
         state: directory
         owner: "{{ borg_user }}"
         group: "{{ borg_user }}"
         mode: '0755'
-      become: yes
-      become_user: root
+      tags: [borg]
 
-    - name: Initialize Borg repository
-      ansible.builtin.shell: |
+    - name: Init borg repository (one-time)
+      shell: |
         export BORG_PASSPHRASE={{ borg_repo_password }}
         borg init --encryption=repokey {{ borg_repo_path }}
       args:
         creates: "{{ borg_repo_path }}/config"
-      become: yes
       become_user: "{{ borg_user }}"
+      tags: [borg]
 
-    - name: Set proper permissions for Borg directory
+    - name: Fix permissions for borg repo
       file:
         path: "{{ borg_backup_dir }}"
         recurse: yes
         owner: "{{ borg_user }}"
         group: "{{ borg_user }}"
         mode: '0755'
-      become: yes
-      become_user: root
+      tags: [borg]
 
-      # ────────────────────────────────────────────────────────────────────────────
-      # jelly.hubertasvin.eu proxy + HTTPS setup
-      # ────────────────────────────────────────────────────────────────────────────
-    - name: Deploy nginx proxy config for jelly.hubertasvin.eu
+    # === SECTION: Firewall & SELinux =========================================
+    - name: Ensure firewalld is enabled and running
+      service:
+        name: firewalld
+        state: started
+        enabled: yes
+      tags: [firewall]
+
+    - name: Open HTTP/HTTPS
+      firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        state: enabled
+      loop: [http, https]
+      notify: Reload firewalld
+      tags: [firewall]
+
+    - name: Allow nginx outbound network (SELinux)
+      seboolean:
+        name: httpd_can_network_connect
+        state: true
+        persistent: yes
+      tags: [selinux]
+
+    # === SECTION: Nginx reverse proxies (HTTP) ================================
+    - name: Proxy for {{ jelly_domain }}
       copy:
-        dest: /etc/nginx/conf.d/jelly.hubertasvin.eu.conf
+        dest: /etc/nginx/conf.d/{{ jelly_domain }}.conf
+        mode: '0644'
         content: |
           server {
-              server_name jelly.hubertasvin.eu;
+              server_name {{ jelly_domain }};
 
               location / {
                   proxy_pass         http://127.0.0.1:8096;
@@ -208,16 +243,16 @@
                   proxy_read_timeout 90;
               }
           }
-        owner: root
-        group: root
-        mode: '0644'
+      notify: Reload nginx
+      tags: [nginx]
 
-    - name: Deploy nginx proxy config for immich.hubertasvin.eu
+    - name: Proxy for {{ immich_domain }}
       copy:
-        dest: /etc/nginx/conf.d/immich.hubertasvin.eu.conf
+        dest: /etc/nginx/conf.d/{{ immich_domain }}.conf
+        mode: '0644'
         content: |
           server {
-              server_name immich.hubertasvin.eu;
+              server_name {{ immich_domain }};
               client_max_body_size 5000M;
 
               proxy_set_header Host              $http_host;
@@ -233,71 +268,150 @@
                   proxy_pass http://127.0.0.1:2283;
               }
 
-              # allow ACME challenges
               location = /.well-known/immich {
                   proxy_pass http://127.0.0.1:2283;
               }
           }
-      owner: root
-      group: root
-      mode: '0644'
+      notify: Reload nginx
+      tags: [nginx]
 
-    - name: Ensure firewalld is enabled and running
-      service:
-        name: firewalld
-        state: started
-        enabled: yes
+    - name: Proxy for {{ stock_domain }}
+      copy:
+        dest: "/etc/nginx/conf.d/{{ stock_domain }}.conf"
+        mode: '0644'
+        content: |
+          server {
+              listen 80;
+              server_name {{ stock_domain }};
 
-    - name: Open HTTP and HTTPS ports in firewalld
-      firewalld:
-        service: "{{ item }}"
-        permanent: yes
-        state: enabled
-      loop:
-        - http
-        - https
-      notify: Reload firewalld
+              location / {
+                  proxy_pass         http://127.0.0.1:{{ stock_web_port }};
+                  proxy_set_header   Host              $host;
+                  proxy_set_header   X-Real-IP         $remote_addr;
+                  proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_read_timeout 90;
+              }
+          }
+      notify: Reload nginx
+      tags: [nginx]
 
-    - name: Set SELinux boolean to allow nginx outbound connections
-      seboolean:
-        name: httpd_can_network_connect
-        state: true
-        persistent: yes
+    - name: Test nginx config
+      shell: nginx -t
+      register: nginx_test
+      changed_when: false
+      failed_when: nginx_test.rc != 0
+      tags: [nginx]
 
-    - name: Obtain Let's Encrypt certificate for jelly.hubertasvin.eu
+    # === SECTION: TLS via certbot (nginx plugin) ==============================
+    - name: Issue cert for {{ jelly_domain }}
       shell: |
-        certbot --nginx -d jelly.hubertasvin.eu \
-          --non-interactive --agree-tos --email "{{ certbot_email }}"
+        certbot --nginx -d {{ jelly_domain }} \
+          --non-interactive --agree-tos --email "{{ certbot_email }}" --redirect
       args:
-        creates: /etc/letsencrypt/live/jelly.hubertasvin.eu/fullchain.pem
+        creates: /etc/letsencrypt/live/{{ jelly_domain }}/fullchain.pem
+      tags: [tls]
 
-    - name: Obtain Let's Encrypt certificate for immich.hubertasvin.eu
+    - name: Issue cert for {{ immich_domain }}
       shell: |
-        certbot --nginx -d immich.hubertasvin.eu \
-          --non-interactive --agree-tos --email "{{ certbot_email }}"
+        certbot --nginx -d {{ immich_domain }} \
+          --non-interactive --agree-tos --email "{{ certbot_email }}" --redirect
       args:
-        creates: /etc/letsencrypt/live/immich.hubertasvin.eu/fullchain.pem
+        creates: /etc/letsencrypt/live/{{ immich_domain }}/fullchain.pem
+      tags: [tls]
 
-    - name: Restart nginx to pick up new SSL config
+    - name: Issue cert for {{ stock_domain }}
+      shell: |
+        certbot --nginx -d {{ stock_domain }} \
+          --non-interactive --agree-tos --email "{{ certbot_email }}" --redirect
+      args:
+        creates: "/etc/letsencrypt/live/{{ stock_domain }}/fullchain.pem"
+      tags: [tls]
+
+    - name: Restart nginx after TLS issuance
       service:
         name: nginx
         state: restarted
+      tags: [nginx,tls]
 
-    handlers:
-      - name: Reload firewalld
-        service:
-          name: firewalld
-          state: reloaded
+    # === SECTION: Clone & deploy StockDataAggregator ==========================
+    - name: Ensure /home/{{ server_main_user }}/apps exists
+      file:
+        path: "/home/{{ server_main_user }}/apps"
+        state: directory
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: '0755'
+      tags: [stockdata]
 
+    - name: Clone/pull StockDataAggregator
+      become_user: "{{ server_main_user }}"
+      git:
+        repo: "{{ stock_repo_url }}"
+        dest: "{{ stock_repo_dir }}"
+        version: "{{ stock_repo_version | default('main') }}"
+        update: yes
+        force: yes
+        accept_hostkey: yes
+      tags: [stockdata,git]
 
-    become: yes
-    become_user: "{{ server_main_user }}"
+    - name: Fix ownership for repo tree
+      file:
+        path: "{{ stock_repo_dir }}"
+        state: directory
+        recurse: yes
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+      tags: [stockdata]
 
+    - name: Write deploy api.env for compose
+      copy:
+        dest: "{{ stock_repo_dir }}/deploy/api.env"
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: '0600'
+        content: |
+          POSTGRES_DB={{ stock_pg_db }}
+          POSTGRES_USER={{ stock_pg_user }}
+          POSTGRES_PASSWORD={{ stock_pg_password }}
 
-  - name: Install Immich via official script
-    shell: |
-      curl -o- https://raw.githubusercontent.com/immich-app/immich/main/install.sh | bash
-    args:
-      chdir: "{{ home_dir }}"
-    become: yes
-    become_user: "{{ server_main_user }}"
+          FmpClient__ApiKey={{ stock_fmp_api_key }}
+          YahooClient__ApiKey={{ stock_yahoo_api_key }}
+
+          Jwt__Issuer={{ stock_jwt_issuer }}
+          Jwt__Audience={{ stock_jwt_audience }}
+          Jwt__Key={{ stock_jwt_key }}
+          Jwt__Username={{ stock_jwt_username }}
+          Jwt__Password={{ stock_jwt_password }}
+
+          ConnectionStrings__Default=Host=db;Database={{ stock_pg_db }};Username={{ stock_pg_user }};Password={{ stock_pg_password }}
+      tags: [stockdata,compose]
+
+    - name: docker compose up -d (build+run)
+      community.docker.docker_compose_v2:
+        project_src: "{{ stock_repo_dir }}/deploy"
+        build: true
+        state: present
+        remove_orphans: true
+      tags: [stockdata,compose]
+
+    # === SECTION: Optional – Immich one-liner installer ======================
+    - name: Install Immich (official script)
+      shell: |
+        curl -o- https://raw.githubusercontent.com/immich-app/immich/main/install.sh | bash
+      args:
+        chdir: "{{ home_dir }}"
+      become_user: "{{ server_main_user }}"
+      tags: [immich]
+      when: immich_install | default(false) | bool
+
+  handlers:
+    - name: Reload firewalld
+      service:
+        name: firewalld
+        state: reloaded
+
+    - name: Reload nginx
+      service:
+        name: nginx
+        state: reloaded
