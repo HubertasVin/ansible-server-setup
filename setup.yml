@@ -107,7 +107,6 @@
         name: "{{ server_main_user }}"
         password: "{{ server_main_password | password_hash('sha512') }}"
         update_password: always
-      no_log: true
       tags: [users]
 
     - name: Allow passwordless sudo for user {{ server_main_user }}
