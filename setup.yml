@@ -247,6 +247,9 @@
         name: httpd_can_network_connect
         state: true
         persistent: true
+      when:
+        - ansible_selinux is defined
+        - ansible_selinux.status == "enabled"
       tags: [selinux]
 
     # ACME webroot + websocket map
@@ -428,6 +431,9 @@
     - name: Restore SELinux contexts for certbot paths
       ansible.builtin.command: restorecon -Rv /etc/letsencrypt /var/www/certbot
       changed_when: false
+      when:
+        - ansible_selinux is defined
+        - ansible_selinux.status == "enabled"
       tags: [tls, selinux]
 
     - name: Restart nginx after TLS issuance
