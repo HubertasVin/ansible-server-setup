@@ -262,6 +262,24 @@
         mode: "0755"
       tags: [nginx, tls]
 
+    - name: Ensure nginx conf.d exists
+      ansible.builtin.file:
+        path: /etc/nginx/conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      tags: [nginx]
+
+    - name: Ensure nginx snippets dir exists
+      ansible.builtin.file:
+        path: /etc/nginx/snippets
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      tags: [nginx, tls]
+
     - name: Write letsencrypt snippet (serve challenges)
       ansible.builtin.copy:
         dest: /etc/nginx/snippets/letsencrypt.conf
