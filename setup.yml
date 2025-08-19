@@ -1,38 +1,31 @@
----
 - name: Fedora host bootstrap + WebDAV + Reverse proxies + StockDataAggregator deploy
   hosts: localhost
   become: true
   connection: local
   vars_files:
-    # Default to dev secrets so lint & syntax-check do not require vault
     - "{{ secrets_file | default('secrets.dev.yml') }}"
 
   vars:
-    # ── Core users/paths ──────────────────────────────────────────────────────
     server_main_user: "hubserv"
     home_dir: "/home/{{ server_main_user }}"
     uid: "1000"
     gid: "1000"
 
-    # ── WebDAV ────────────────────────────────────────────────────────────────
     docker_image: "dgraziotin/nginx-webdav-nononsense"
     dav_dir: "{{ home_dir }}/dav_data"
     sync_script_path: "{{ home_dir }}/sync-data.sh"
     sync_log_path: "{{ home_dir }}/sync-data.log"
 
-    # ── Borg backup ───────────────────────────────────────────────────────────
     borg_user: borguser
     borg_password: "{{ borg_repo_password }}"
     borg_backup_dir: "/home/{{ borg_user }}/backups"
     borg_repo_path: "{{ borg_backup_dir }}"
 
-    # ── StockDataAggregator repo/deploy ───────────────────────────────────────
     stock_repo_url: "https://github.com/HubertasVin/stock-data-aggregator.git"
     stock_repo_dir: "/home/{{ server_main_user }}/apps/stockdata"
     stock_repo_version: "main"
 
   pre_tasks:
-    # ========== SECTION: Packages & services ==========
     - name: Add Docker CE repo (Fedora)
       ansible.builtin.yum_repository:
         name: docker-ce-stable
@@ -44,6 +37,15 @@
         state: present
       when: ansible_os_family == "RedHat"
       tags: [packages]
+
+    - name: Enable RPM Fusion repos (Fedora)
+      ansible.builtin.dnf:
+        name:
+          - "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-{{ ansible_facts['distribution_major_version'] }}.noarch.rpm"
+          - "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-{{ ansible_facts['distribution_major_version'] }}.noarch.rpm"
+        state: present
+      when: ansible_os_family == "RedHat"
+      tags: [jellyfin]
 
     - name: Install base packages (Fedora)
       ansible.builtin.dnf:
@@ -75,8 +77,23 @@
         - nginx
       tags: [services]
 
+    - name: Install Jellyfin meta-package (server+web)
+      ansible.builtin.dnf:
+        name: jellyfin
+        state: present
+        update_cache: true
+      when: ansible_os_family == "RedHat"
+      tags: [jellyfin]
+
+    - name: Enable and start Jellyfin
+      ansible.builtin.service:
+        name: jellyfin
+        state: started
+        enabled: true
+      tags: [jellyfin]
+
   tasks:
-    # ========== SECTION: Users & permissions ==========
+    # Users & permissions
     - name: Ensure main user exists
       ansible.builtin.user:
         name: "{{ server_main_user }}"
@@ -99,7 +116,7 @@
         content: "{{ server_main_user }} ALL=(ALL) NOPASSWD:ALL"
         owner: root
         group: root
-        mode: '0440'
+        mode: "0440"
       tags: [users]
 
     - name: Ensure borg user exists
@@ -131,14 +148,14 @@
         append: true
       tags: [users, docker]
 
-    # ========== SECTION: WebDAV container ==========
+    # WebDAV container
     - name: Create WebDAV data dir
       ansible.builtin.file:
         path: "{{ dav_dir }}"
         state: directory
         owner: "{{ uid }}"
         group: "{{ gid }}"
-        mode: '0755'
+        mode: "0755"
       tags: [webdav]
 
     - name: Run WebDAV container
@@ -171,18 +188,18 @@
     - name: Replace username placeholder in sync script
       ansible.builtin.replace:
         path: "{{ sync_script_path }}"
-        regexp: 'insert-user-name-here'
+        regexp: "insert-user-name-here"
         replace: "{{ server_main_user }}"
       tags: [webdav]
 
-    # ========== SECTION: Borg backup ==========
+    # Borg backup
     - name: Ensure borg backup dir exists
       ansible.builtin.file:
         path: "{{ borg_backup_dir }}"
         state: directory
         owner: "{{ borg_user }}"
         group: "{{ borg_user }}"
-        mode: '0755'
+        mode: "0755"
       tags: [borg]
 
     - name: Init borg repository (one-time)
@@ -203,10 +220,10 @@
         recurse: true
         owner: "{{ borg_user }}"
         group: "{{ borg_user }}"
-        mode: '0755'
+        mode: "0755"
       tags: [borg]
 
-    # ========== SECTION: Firewall & SELinux ==========
+    # Firewall & SELinux
     - name: Ensure firewalld is enabled and running
       ansible.builtin.service:
         name: firewalld
@@ -233,14 +250,53 @@
         persistent: true
       tags: [selinux]
 
-    # ========== SECTION: Nginx reverse proxies (HTTP) ==========
+    # ACME webroot + websocket map
+    - name: Create ACME webroot
+      ansible.builtin.file:
+        path: /var/www/certbot/.well-known/acme-challenge
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [nginx, tls]
+
+    - name: Write letsencrypt snippet (serve challenges)
+      ansible.builtin.copy:
+        dest: /etc/nginx/snippets/letsencrypt.conf
+        mode: "0644"
+        content: |
+          location ^~ /.well-known/acme-challenge/ {
+              alias /var/www/certbot/.well-known/acme-challenge/;
+              default_type "text/plain";
+              try_files $uri =404;
+          }
+      notify: Reload nginx
+      tags: [nginx, tls]
+
+    - name: WebSocket upgrade map (used by Immich)
+      ansible.builtin.copy:
+        dest: /etc/nginx/conf.d/00_websocket_map.conf
+        mode: "0644"
+        content: |
+          map $http_upgrade $connection_upgrade {
+            default upgrade;
+            ''      close;
+          }
+      notify: Reload nginx
+      tags: [nginx]
+
+    # Nginx reverse proxies (HTTP)
     - name: Proxy for {{ jelly_domain }}
       ansible.builtin.copy:
         dest: /etc/nginx/conf.d/{{ jelly_domain }}.conf
-        mode: '0644'
+        mode: "0644"
         content: |
           server {
+              listen 80;
+              listen [::]:80;
               server_name {{ jelly_domain }};
+
+              include /etc/nginx/snippets/letsencrypt.conf;
 
               location / {
                   proxy_pass         http://127.0.0.1:8096;
@@ -257,16 +313,23 @@
     - name: Proxy for {{ immich_domain }}
       ansible.builtin.copy:
         dest: /etc/nginx/conf.d/{{ immich_domain }}.conf
-        mode: '0644'
+        mode: "0644"
         content: |
           server {
+              listen 80;
+              listen [::]:80;
               server_name {{ immich_domain }};
               client_max_body_size 5000M;
+
+              include /etc/nginx/snippets/letsencrypt.conf;
 
               proxy_set_header Host              $http_host;
               proxy_set_header X-Real-IP         $remote_addr;
               proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
               proxy_set_header X-Forwarded-Proto $scheme;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade           $http_upgrade;
+              proxy_set_header Connection        $connection_upgrade;
 
               proxy_read_timeout  600s;
               proxy_send_timeout  600s;
@@ -286,11 +349,14 @@
     - name: Proxy for {{ stock_domain }}
       ansible.builtin.copy:
         dest: "/etc/nginx/conf.d/{{ stock_domain }}.conf"
-        mode: '0644'
+        mode: "0644"
         content: |
           server {
               listen 80;
+              listen [::]:80;
               server_name {{ stock_domain }};
+
+              include /etc/nginx/snippets/letsencrypt.conf;
 
               location / {
                   proxy_pass         http://127.0.0.1:{{ stock_web_port }};
@@ -311,7 +377,7 @@
       failed_when: nginx_test.rc != 0
       tags: [nginx]
 
-    # ========== SECTION: TLS via certbot (nginx plugin) ==========
+    # TLS via certbot (nginx plugin) + renew
     - name: Issue cert for {{ jelly_domain }}
       ansible.builtin.command:
         argv:
@@ -360,20 +426,64 @@
         creates: "/etc/letsencrypt/live/{{ stock_domain }}/fullchain.pem"
       tags: [tls]
 
+    - name: Restore SELinux contexts for certbot paths
+      ansible.builtin.command: restorecon -Rv /etc/letsencrypt /var/www/certbot
+      changed_when: false
+      tags: [tls, selinux]
+
     - name: Restart nginx after TLS issuance
       ansible.builtin.service:
         name: nginx
         state: restarted
       tags: [nginx, tls]
 
-    # ========== SECTION: Clone & deploy StockDataAggregator ==========
+    - name: Install certbot renew systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/certbot-renew.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Certbot renew
+          After=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/certbot renew --quiet --deploy-hook "systemctl reload nginx"
+      tags: [tls]
+
+    - name: Install certbot renew systemd timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/certbot-renew.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Twice-daily certbot renew
+
+          [Timer]
+          OnCalendar=*-*-* 03,15:00:00
+          RandomizedDelaySec=1800
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+      tags: [tls]
+
+    - name: Enable and start certbot-renew.timer
+      ansible.builtin.systemd:
+        name: certbot-renew.timer
+        state: started
+        enabled: true
+        daemon_reload: true
+      tags: [tls]
+
+    # Clone & deploy StockDataAggregator
     - name: Ensure apps directory exists - {{ home_dir ~ '/apps' }}
       ansible.builtin.file:
         path: "/home/{{ server_main_user }}/apps"
         state: directory
         owner: "{{ server_main_user }}"
         group: "{{ server_main_user }}"
-        mode: '0755'
+        mode: "0755"
       tags: [stockdata]
 
     - name: Clone/pull StockDataAggregator ({{ stock_repo_version }})
@@ -402,7 +512,7 @@
         dest: "{{ stock_repo_dir }}/deploy/api.env"
         owner: "{{ server_main_user }}"
         group: "{{ server_main_user }}"
-        mode: '0600'
+        mode: "0600"
         content: |
           POSTGRES_DB={{ stock_pg_db }}
           POSTGRES_USER={{ stock_pg_user }}
@@ -429,7 +539,7 @@
         remove_orphans: true
       tags: [stockdata, compose]
 
-    # ========== SECTION: Optional – Immich installer ==========
+    # Optional – Immich installer
     - name: Install Immich (official script)
       become: true
       become_user: "{{ server_main_user }}"
