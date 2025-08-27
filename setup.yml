@@ -59,6 +59,7 @@
           - docker-ce
           - borgbackup
           - git
+          - git-crypt
           - nginx
           - certbot
           - python3-certbot-nginx
@@ -182,14 +183,21 @@
         minute: "0"
         hour: "2"
         job: "/bin/bash {{ sync_script_path }} >> {{ sync_log_path }} 2>&1"
-      tags: [webdav]
+      tags: [obsidian, git]
 
     - name: Replace username placeholder in sync script
       ansible.builtin.replace:
         path: "{{ sync_script_path }}"
         regexp: "insert-user-name-here"
         replace: "{{ server_main_user }}"
-      tags: [webdav]
+      tags: [obsidian, git]
+
+    - name: Replace gitcrypt key placeholder in sync script
+      ansible.builtin.replace:
+        path: "{{ sync_script_path }}"
+        regexp: "replace-with-gitcrypt-key-b64"
+        replace: "{{ gitcrypt_key_b64 }}"
+      tags: [obsidian, git]
 
     # Borg backup
     - name: Ensure borg backup dir exists
