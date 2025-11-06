@@ -1,9 +1,22 @@
 - name: Fedora host bootstrap + WebDAV + Reverse proxies + StockDataAggregator deploy
-  hosts: localhost
-  become: true
-  connection: local
+  hosts: all
+  become: false
+  # connection: local
   vars_files:
     - "{{ secrets_file | default('secrets.dev.yml') }}"
+
+  vars_prompt:
+    - name: server_main_password
+      prompt: "Enter main server password for {{ server_main_user }}"
+      private: true
+
+    - name: borg_repo_password
+      prompt: "Enter Borg repository password"
+      private: true
+
+    - name: rclone_protondrive_password
+      prompt: "Enter Proton Drive password"
+      private: true
 
   vars:
     server_main_user: "hubserv"
@@ -27,6 +40,7 @@
 
   pre_tasks:
     - name: Add Docker CE repo (Fedora)
+      become: true
       ansible.builtin.yum_repository:
         name: docker-ce-stable
         description: "Docker CE Stable - $releasever"
@@ -39,15 +53,18 @@
       tags: [packages]
 
     - name: Enable RPM Fusion repos (Fedora)
+      become: true
       ansible.builtin.dnf:
         name:
           - "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-{{ ansible_facts['distribution_major_version'] }}.noarch.rpm"
           - "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-{{ ansible_facts['distribution_major_version'] }}.noarch.rpm"
         state: present
+        disable_gpg_check: yes
       when: ansible_os_family == "RedHat"
       tags: [jellyfin]
 
     - name: Install base packages (Fedora)
+      become: true
       ansible.builtin.dnf:
         name:
           - ca-certificates
@@ -62,12 +79,36 @@
           - nginx
           - certbot
           - python3-certbot-nginx
+          - rclone
         state: present
         update_cache: true
       when: ansible_os_family == "RedHat"
       tags: [packages]
 
+    - name: Prompt for fresh 2FA code
+      ansible.builtin.pause:
+        prompt: "Enter your Proton Drive 2FA code"
+        echo: true
+      register: rclone_protondrive_2fa
+      when: not (testing_mode | default(false) | bool)
+      tags: [rclone]
+
+    - name: Configure rclone with fresh 2FA
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.shell: |
+        rclone config create "ProtonDrive" protondrive \
+          username "{{ rclone_protondrive_email }}" \
+          password "{{ rclone_protondrive_password }}" \
+          2fa "{{ rclone_protondrive_2fa.user_input }}"
+      args:
+        creates: "{{ home_dir }}/.config/rclone/rclone.conf"
+      no_log: true
+      when: not (testing_mode | default(false) | bool)
+      tags: [rclone]
+
     - name: Enable/start Docker & Nginx
+      become: true
       ansible.builtin.service:
         name: "{{ item }}"
         state: started
@@ -78,6 +119,7 @@
       tags: [services]
 
     - name: Install Jellyfin meta-package (server+web)
+      become: true
       ansible.builtin.dnf:
         name: jellyfin
         state: present
@@ -86,6 +128,7 @@
       tags: [jellyfin]
 
     - name: Enable and start Jellyfin
+      become: true
       ansible.builtin.service:
         name: jellyfin
         state: started
@@ -95,6 +138,7 @@
   tasks:
     # Users & permissions
     - name: Ensure main user exists
+      become: true
       ansible.builtin.user:
         name: "{{ server_main_user }}"
         state: present
@@ -103,6 +147,7 @@
       tags: [users]
 
     - name: Set password for main user
+      become: true
       ansible.builtin.user:
         name: "{{ server_main_user }}"
         password: "{{ server_main_password | password_hash('sha512') }}"
@@ -110,6 +155,7 @@
       tags: [users]
 
     - name: Allow passwordless sudo for user {{ server_main_user }}
+      become: true
       ansible.builtin.copy:
         dest: "/etc/sudoers.d/{{ server_main_user }}"
         content: "{{ server_main_user }} ALL=(ALL) NOPASSWD:ALL"
@@ -119,6 +165,7 @@
       tags: [users]
 
     - name: Ensure borg user exists
+      become: true
       ansible.builtin.user:
         name: "{{ borg_user }}"
         state: present
@@ -127,6 +174,7 @@
       tags: [users, borg]
 
     - name: Set password for borg user
+      become: true
       ansible.builtin.user:
         name: "{{ borg_user }}"
         password: "{{ borg_password | password_hash('sha512') }}"
@@ -135,12 +183,14 @@
       tags: [users, borg]
 
     - name: Ensure docker group exists
+      become: true
       ansible.builtin.group:
         name: docker
         state: present
       tags: [users, docker]
 
     - name: Add user to docker group - {{ server_main_user }}
+      become: true
       ansible.builtin.user:
         name: "{{ server_main_user }}"
         groups: docker
@@ -177,6 +227,7 @@
       tags: [webdav, docker]
 
     - name: Add cron job for daily WebDAV sync
+      become: true
       ansible.builtin.cron:
         name: "Daily dav sync"
         minute: "0"
@@ -214,6 +265,7 @@
       tags: [borg]
 
     - name: Fix permissions for borg repo
+      become: true
       ansible.builtin.file:
         path: "{{ borg_backup_dir }}"
         recurse: true
@@ -224,6 +276,7 @@
 
     # Firewall & SELinux
     - name: Ensure firewalld is enabled and running
+      become: true
       ansible.builtin.service:
         name: firewalld
         state: started
@@ -231,6 +284,7 @@
       tags: [firewall]
 
     - name: Open HTTP/HTTPS
+      become: true
       ansible.posix.firewalld:
         service: "{{ item }}"
         permanent: true
@@ -243,6 +297,7 @@
       tags: [firewall]
 
     - name: Allow nginx outbound network (SELinux)
+      become: true
       ansible.posix.seboolean:
         name: httpd_can_network_connect
         state: true
@@ -254,6 +309,7 @@
 
     # ACME webroot + websocket map
     - name: Create ACME webroot
+      become: true
       ansible.builtin.file:
         path: /var/www/certbot/.well-known/acme-challenge
         state: directory
@@ -263,6 +319,7 @@
       tags: [nginx, tls]
 
     - name: Ensure nginx conf.d exists
+      become: true
       ansible.builtin.file:
         path: /etc/nginx/conf.d
         state: directory
@@ -272,6 +329,7 @@
       tags: [nginx]
 
     - name: Ensure nginx snippets dir exists
+      become: true
       ansible.builtin.file:
         path: /etc/nginx/snippets
         state: directory
@@ -281,6 +339,7 @@
       tags: [nginx, tls]
 
     - name: Write letsencrypt snippet (serve challenges)
+      become: true
       ansible.builtin.copy:
         dest: /etc/nginx/snippets/letsencrypt.conf
         mode: "0644"
@@ -294,6 +353,7 @@
       tags: [nginx, tls]
 
     - name: WebSocket upgrade map (used by Immich)
+      become: true
       ansible.builtin.copy:
         dest: /etc/nginx/conf.d/00_websocket_map.conf
         mode: "0644"
@@ -307,6 +367,7 @@
 
     # Nginx reverse proxies (HTTP)
     - name: Proxy for {{ jelly_domain }}
+      become: true
       ansible.builtin.copy:
         dest: /etc/nginx/conf.d/{{ jelly_domain }}.conf
         mode: "0644"
@@ -331,6 +392,7 @@
       tags: [nginx]
 
     - name: Proxy for {{ immich_domain }}
+      become: true
       ansible.builtin.copy:
         dest: /etc/nginx/conf.d/{{ immich_domain }}.conf
         mode: "0644"
@@ -367,6 +429,7 @@
       tags: [nginx]
 
     - name: Proxy for {{ stock_domain }}
+      become: true
       ansible.builtin.copy:
         dest: "/etc/nginx/conf.d/{{ stock_domain }}.conf"
         mode: "0644"
@@ -391,6 +454,7 @@
       tags: [nginx]
 
     - name: Test nginx config
+      become: true
       ansible.builtin.command: nginx -t
       register: nginx_test
       changed_when: false
@@ -399,6 +463,7 @@
 
     # TLS via certbot (nginx plugin) + renew
     - name: Issue cert for {{ jelly_domain }}
+      become: true
       ansible.builtin.command:
         argv:
           - certbot
@@ -415,6 +480,7 @@
       tags: [tls]
 
     - name: Issue cert for {{ immich_domain }}
+      become: true
       ansible.builtin.command:
         argv:
           - certbot
@@ -431,6 +497,7 @@
       tags: [tls]
 
     - name: Issue cert for {{ stock_domain }}
+      become: true
       ansible.builtin.command:
         argv:
           - certbot
@@ -447,6 +514,7 @@
       tags: [tls]
 
     - name: Restore SELinux contexts for certbot paths
+      become: true
       ansible.builtin.command: restorecon -Rv /etc/letsencrypt /var/www/certbot
       changed_when: false
       when:
@@ -455,12 +523,14 @@
       tags: [tls, selinux]
 
     - name: Restart nginx after TLS issuance
+      become: true
       ansible.builtin.service:
         name: nginx
         state: restarted
       tags: [nginx, tls]
 
     - name: Install certbot renew systemd service
+      become: true
       ansible.builtin.copy:
         dest: /etc/systemd/system/certbot-renew.service
         mode: "0644"
@@ -475,6 +545,7 @@
       tags: [tls]
 
     - name: Install certbot renew systemd timer
+      become: true
       ansible.builtin.copy:
         dest: /etc/systemd/system/certbot-renew.timer
         mode: "0644"
@@ -492,6 +563,7 @@
       tags: [tls]
 
     - name: Enable and start certbot-renew.timer
+      become: true
       ansible.builtin.systemd:
         name: certbot-renew.timer
         state: started

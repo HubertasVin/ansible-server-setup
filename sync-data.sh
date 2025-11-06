@@ -49,3 +49,12 @@ git push origin main 2>&1 || {
 }
 
 echo "$(date): Sync completed successfully"
+
+tmpdir=$(mktemp -d -p "$USER_HOME" proton-os-sync-XXXXXX)
+zipname="backup-$(date +'%Y-%m-%d_%H:%M:%S').zip"
+trap 'rm -rf "$tmpdir"' EXIT
+
+cd "$VAULT_DIR" || exit 1
+zip $tmpdir/$zipname *
+
+rclone copy $tmpdir/$zipname ProtonDrive:Obsidian\ backups/
