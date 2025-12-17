@@ -41,6 +41,7 @@
     firefly_dir: "/home/{{ server_main_user }}/apps/firefly"
     firefly_compose_url: "https://raw.githubusercontent.com/firefly-iii/docker/main/docker-compose.yml"
     firefly_env_example_url: "https://raw.githubusercontent.com/firefly-iii/firefly-iii/main/.env.example"
+    firefly_db_env_example_url: "https://raw.githubusercontent.com/firefly-iii/docker/main/database.env"
     firefly_domain: "{{ firefly_domain }}"
     firefly_host_port: 8181
 
@@ -80,7 +81,6 @@
           - acl
           - python3-passlib
           - docker-ce
-          - docker-compose-plugin
           - borgbackup
           - git
           - nginx
@@ -725,43 +725,56 @@
         mode: "0600"
       tags: [firefly, firefly_env]
 
-    # Your requested overrides:
+    - name: Firefly | Download database.env as .db.env
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.get_url:
+        url: "{{ firefly_db_env_example_url }}"
+        dest: "{{ firefly_dir }}/.db.env"
+        mode: "0600"
+      tags: [firefly, firefly_db_env]
 
     - name: Firefly | Set TZ=Europe/Vilnius
       become: true
       ansible.builtin.lineinfile:
         path: "{{ firefly_dir }}/.env"
-        regexp: '^TZ='
-        line: 'TZ=Europe/Vilnius'
+        regexp: "^TZ="
+        line: "TZ=Europe/Vilnius"
       tags: [firefly, firefly_env]
-      # The example env file uses TZ=Europe/Amsterdam as a placeholder [[6]].
 
     - name: Firefly | Set APP_URL=https://{{ firefly_domain }}
       become: true
       ansible.builtin.lineinfile:
         path: "{{ firefly_dir }}/.env"
-        regexp: '^APP_URL='
+        regexp: "^APP_URL="
         line: "APP_URL=https://{{ firefly_domain }}"
       tags: [firefly, firefly_env]
-      # The example contains APP_URL=http://localhost [[2]].
 
     - name: Firefly | Set TRUSTED_PROXIES for reverse proxy usage
       become: true
       ansible.builtin.lineinfile:
         path: "{{ firefly_dir }}/.env"
-        regexp: '^TRUSTED_PROXIES='
-        line: 'TRUSTED_PROXIES=*'
+        regexp: "^TRUSTED_PROXIES="
+        line: "TRUSTED_PROXIES=*"
       tags: [firefly, firefly_env]
-      # Firefly’s Docker docs commonly recommend TRUSTED_PROXIES=* behind a reverse proxy to avoid proxy/header issues [[5]].
 
     - name: Firefly | Set DB_PASSWORD from secret
       become: true
       ansible.builtin.lineinfile:
         path: "{{ firefly_dir }}/.env"
-        regexp: '^DB_PASSWORD='
+        regexp: "^DB_PASSWORD="
         line: "DB_PASSWORD={{ firefly_db_password }}"
       no_log: true
       tags: [firefly, firefly_env]
+
+    - name: Firefly | Set MYSQL_PASSWORD in .db.env from secret
+      become: true
+      ansible.builtin.lineinfile:
+        path: "{{ firefly_dir }}/.db.env"
+        regexp: "^MYSQL_PASSWORD="
+        line: "MYSQL_PASSWORD={{ firefly_db_password }}"
+      no_log: true
+      tags: [firefly, firefly_db_env]
 
     - name: Firefly | Bring up containers
       community.docker.docker_compose_v2:
@@ -769,7 +782,6 @@
         state: present
         remove_orphans: true
       tags: [firefly, compose]
-
 
   handlers:
     - name: Reload firewalld
