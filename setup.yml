@@ -38,6 +38,12 @@
     stock_repo_dir: "/home/{{ server_main_user }}/apps/stockdata"
     stock_repo_version: "main"
 
+    firefly_dir: "/home/{{ server_main_user }}/apps/firefly"
+    firefly_compose_url: "https://raw.githubusercontent.com/firefly-iii/docker/main/docker-compose.yml"
+    firefly_env_example_url: "https://raw.githubusercontent.com/firefly-iii/firefly-iii/main/.env.example"
+    firefly_domain: "{{ firefly_domain }}"
+    firefly_host_port: 8181
+
   pre_tasks:
     - name: Add Docker CE repo (Fedora)
       become: true
@@ -325,7 +331,7 @@
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
       tags: [nginx]
 
     - name: Ensure nginx snippets dir exists
@@ -335,7 +341,7 @@
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
       tags: [nginx, tls]
 
     - name: Write letsencrypt snippet (serve challenges)
@@ -453,6 +459,31 @@
       notify: Reload nginx
       tags: [nginx]
 
+    - name: Proxy for {{ firefly_domain }}
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/nginx/conf.d/{{ firefly_domain }}.conf
+        mode: "0644"
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name {{ firefly_domain }};
+
+              include /etc/nginx/snippets/letsencrypt.conf;
+
+              location / {
+                  proxy_pass         http://127.0.0.1:{{ firefly_host_port }};
+                  proxy_set_header   Host              $host;
+                  proxy_set_header   X-Real-IP         $remote_addr;
+                  proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_read_timeout 90;
+              }
+          }
+      notify: Reload nginx
+      tags: [firefly, nginx, firefly_nginx]
+
     - name: Test nginx config
       become: true
       ansible.builtin.command: nginx -t
@@ -512,6 +543,23 @@
       args:
         creates: "/etc/letsencrypt/live/{{ stock_domain }}/fullchain.pem"
       tags: [tls]
+
+    - name: Issue cert for {{ firefly_domain }}
+      become: true
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - --nginx
+          - -d
+          - "{{ firefly_domain }}"
+          - --non-interactive
+          - --agree-tos
+          - --email
+          - "{{ certbot_email }}"
+          - --redirect
+      args:
+        creates: "/etc/letsencrypt/live/{{ firefly_domain }}/fullchain.pem"
+      tags: [firefly, tls, firefly_tls]
 
     - name: Restore SELinux contexts for certbot paths
       become: true
@@ -646,6 +694,81 @@
       changed_when: false
       when: immich_install | default(false) | bool
       tags: [immich]
+
+    # --- Firefly III ---
+    - name: Firefly | Ensure app directory exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ firefly_dir }}"
+        state: directory
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0755"
+      tags: [firefly]
+
+    - name: Firefly | Download docker-compose.yml
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.get_url:
+        url: "{{ firefly_compose_url }}"
+        dest: "{{ firefly_dir }}/docker-compose.yml"
+        mode: "0644"
+      tags: [firefly]
+
+    - name: Firefly | Download upstream .env.example as .env
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.get_url:
+        url: "{{ firefly_env_example_url }}"
+        dest: "{{ firefly_dir }}/.env"
+        mode: "0600"
+      tags: [firefly, firefly_env]
+
+    # Your requested overrides:
+
+    - name: Firefly | Set TZ=Europe/Vilnius
+      become: true
+      ansible.builtin.lineinfile:
+        path: "{{ firefly_dir }}/.env"
+        regexp: '^TZ='
+        line: 'TZ=Europe/Vilnius'
+      tags: [firefly, firefly_env]
+      # The example env file uses TZ=Europe/Amsterdam as a placeholder [[6]].
+
+    - name: Firefly | Set APP_URL=https://{{ firefly_domain }}
+      become: true
+      ansible.builtin.lineinfile:
+        path: "{{ firefly_dir }}/.env"
+        regexp: '^APP_URL='
+        line: "APP_URL=https://{{ firefly_domain }}"
+      tags: [firefly, firefly_env]
+      # The example contains APP_URL=http://localhost [[2]].
+
+    - name: Firefly | Set TRUSTED_PROXIES for reverse proxy usage
+      become: true
+      ansible.builtin.lineinfile:
+        path: "{{ firefly_dir }}/.env"
+        regexp: '^TRUSTED_PROXIES='
+        line: 'TRUSTED_PROXIES=*'
+      tags: [firefly, firefly_env]
+      # Firefly’s Docker docs commonly recommend TRUSTED_PROXIES=* behind a reverse proxy to avoid proxy/header issues [[5]].
+
+    - name: Firefly | Set DB_PASSWORD from secret
+      become: true
+      ansible.builtin.lineinfile:
+        path: "{{ firefly_dir }}/.env"
+        regexp: '^DB_PASSWORD='
+        line: "DB_PASSWORD={{ firefly_db_password }}"
+      no_log: true
+      tags: [firefly, firefly_env]
+
+    - name: Firefly | Bring up containers
+      community.docker.docker_compose_v2:
+        project_src: "{{ firefly_dir }}"
+        state: present
+        remove_orphans: true
+      tags: [firefly]
+
 
   handlers:
     - name: Reload firewalld
