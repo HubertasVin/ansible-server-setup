@@ -42,8 +42,6 @@
     firefly_compose_url: "https://raw.githubusercontent.com/firefly-iii/docker/main/docker-compose.yml"
     firefly_env_example_url: "https://raw.githubusercontent.com/firefly-iii/firefly-iii/main/.env.example"
     firefly_db_env_example_url: "https://raw.githubusercontent.com/firefly-iii/docker/main/database.env"
-    firefly_domain: "{{ firefly_domain }}"
-    firefly_host_port: 8181
 
   pre_tasks:
     - name: Add Docker CE repo (Fedora)
@@ -714,7 +712,20 @@
         url: "{{ firefly_compose_url }}"
         dest: "{{ firefly_dir }}/docker-compose.yml"
         mode: "0644"
-      tags: [firefly]
+      tags: [firefly, firefly_compose]
+
+    - name: Firefly | Write docker-compose.override.yml to avoid port 80 conflict
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.copy:
+        dest: "{{ firefly_dir }}/docker-compose.override.yml"
+        mode: "0644"
+        content: |
+          services:
+            app:
+              ports:
+                - "127.0.0.1:{{ firefly_host_port }}:8080"
+      tags: [firefly, firefly_compose]
 
     - name: Firefly | Download upstream .env.example as .env
       become: true
