@@ -58,3 +58,6 @@ cd "$VAULT_DIR" || exit 1
 zip $tmpdir/$zipname *
 
 rclone copy $tmpdir/$zipname ProtonDrive:Obsidian\ backups/
+
+rm -rf $TEMP_DIR $tmpdir
+
