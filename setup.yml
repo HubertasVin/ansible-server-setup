@@ -80,6 +80,7 @@
           - acl
           - python3-passlib
           - docker-ce
+          - docker-compose-plugin
           - borgbackup
           - git
           - nginx
@@ -767,7 +768,7 @@
         project_src: "{{ firefly_dir }}"
         state: present
         remove_orphans: true
-      tags: [firefly]
+      tags: [firefly, compose]
 
 
   handlers:
