@@ -673,11 +673,12 @@
       no_log: true
       tags: [stockdata, compose]
 
-    - name: Run Docker Compose (build+run)
+    - name: Stockdata | Bring up containers
       community.docker.docker_compose_v2:
         project_src: "{{ stock_repo_dir }}/deploy"
         build: always
         state: present
+        recreate: always
         remove_orphans: true
       tags: [stockdata, compose]
 
@@ -724,7 +725,7 @@
           services:
             app:
               ports:
-                - "127.0.0.1:{{ firefly_host_port }}:8080"
+                - {{ firefly_host_port }}:8080
       tags: [firefly, firefly_compose]
 
     - name: Firefly | Download upstream .env.example as .env
@@ -791,6 +792,7 @@
       community.docker.docker_compose_v2:
         project_src: "{{ firefly_dir }}"
         state: present
+        recreate: always
         remove_orphans: true
       tags: [firefly, compose]
 
