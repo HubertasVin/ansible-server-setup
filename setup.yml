@@ -44,19 +44,6 @@
     firefly_db_env_example_url: "https://raw.githubusercontent.com/firefly-iii/docker/main/database.env"
 
   pre_tasks:
-    - name: Add Docker CE repo (Fedora)
-      become: true
-      ansible.builtin.yum_repository:
-        name: docker-ce-stable
-        description: "Docker CE Stable - $releasever"
-        baseurl: "https://download.docker.com/linux/fedora/$releasever/$basearch/stable"
-        enabled: true
-        gpgcheck: true
-        gpgkey: "https://download.docker.com/linux/fedora/gpg"
-        state: present
-      when: ansible_os_family == "RedHat"
-      tags: [packages]
-
     - name: Enable RPM Fusion repos (Fedora)
       become: true
       ansible.builtin.dnf:
@@ -79,6 +66,7 @@
           - acl
           - python3-passlib
           - docker-ce
+          - containerd
           - borgbackup
           - git
           - nginx
