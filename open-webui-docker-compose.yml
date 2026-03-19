@@ -20,3 +20,5 @@ services:
       # Persistent Data storage
       - openwebui-data:/app/backend/data
     restart: always
+volumes:
+  openwebui-data:
