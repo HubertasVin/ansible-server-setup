@@ -1,0 +1,22 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    ports:
+      - "3003:8080"
+    environment:
+      # External Providers
+      - ENABLE_OPENAI_API=true
+      - OPENAI_API_KEY=%openai_api_key%
+
+      # Web search via ddgs using DuckDuckGo backend
+      - ENABLE_RAG_WEB_SEARCH=true
+      - RAG_WEB_SEARCH_ENGINE=ddgs
+      - DDGS_BACKEND=duckduckgo
+      - RAG_WEB_SEARCH_RESULT_COUNT=8
+    volumes:
+      # Mapping the system-wide Ollama directory
+      - /usr/share/ollama/.ollama:/root/.ollama
+      # Persistent Data storage
+      - openwebui-data:/app/backend/data
+    restart: always

@@ -18,6 +18,10 @@
       prompt: "Enter Proton Drive password"
       private: true
 
+    - name: openai_api_key
+      prompt: "Enter OpenAI API key"
+      private: true
+
   vars:
     server_main_user: "hubserv"
     home_dir: "/home/{{ server_main_user }}"
@@ -35,8 +39,11 @@
     borg_repo_path: "{{ borg_backup_dir }}"
 
     stock_repo_url: "https://github.com/HubertasVin/stock-data-aggregator.git"
-    stock_repo_dir: "/home/{{ server_main_user }}/apps/stockdata"
+    stock_repo_dir: "{{ home_dir }}/apps/stockdata"
     stock_repo_version: "main"
+
+    aichat_dir: "{{ home_dir }}/apps/aichat"
+    aichat_compose_path: "{{ aichat_dir }}/docker-compose.yml"
 
   pre_tasks:
     - name: Enable RPM Fusion repos (Fedora)
@@ -444,6 +451,31 @@
       notify: Reload nginx
       tags: [nginx]
 
+    - name: Proxy for {{ aichat_domain }}
+      become: true
+      ansible.builtin.copy:
+        dest: "/etc/nginx/conf.d/{{ aichat_domain }}.conf"
+        mode: "0644"
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name {{ aichat_domain }};
+
+              include /etc/nginx/snippets/letsencrypt.conf;
+
+              location / {
+                  proxy_pass         http://127.0.0.1:{{ aichat_web_port }};
+                  proxy_set_header   Host              $host;
+                  proxy_set_header   X-Real-IP         $remote_addr;
+                  proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_read_timeout 90;
+              }
+          }
+      notify: Reload nginx
+      tags: [nginx]
+
     - name: Test nginx config
       become: true
       ansible.builtin.command: nginx -t
@@ -625,6 +657,44 @@
         recreate: always
         remove_orphans: true
       tags: [stockdata, compose]
+
+    # Setup Open WebUI
+    - name: Ensure ~/apps/aichat exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ aichat_dir }}"
+        state: directory
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0755"
+      tags: [aichat, docker]
+
+    - name: Copy docker compose for AI chat
+      become: true
+      ansible.builtin.template:
+        src: open-webui-docker-compose.yml
+        dest: "{{ aichat_compose_path }}"
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0644"
+      tags: [aichat, docker]
+
+    - name: Replace OpenAI API key placeholder in compose file
+      become: true
+      ansible.builtin.replace:
+        path: "{{ aichat_compose_path }}"
+        regexp: "%openai_api_key%"
+        replace: "{{ openai_api_key }}"
+      no_log: true
+      tags: [aichat, docker]
+
+    - name: Bring up AI chat compose
+      become: true
+      become_user: "{{ server_main_user }}"
+      community.docker.docker_compose_v2:
+        project_src: "{{ aichat_dir }}"
+        state: present
+      tags: [aichat, docker]
 
     - name: Install Immich
       become: true
