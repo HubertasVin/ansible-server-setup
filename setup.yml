@@ -22,6 +22,10 @@
       prompt: "Enter OpenAI API key"
       private: true
 
+    - name: z_ai_api_key
+      prompt: "Enter Z.AI API key"
+      private: true
+
   vars:
     server_main_user: "hubserv"
     home_dir: "/home/{{ server_main_user }}"
@@ -707,6 +711,15 @@
         path: "{{ aichat_compose_path }}"
         regexp: "%openai_api_key%"
         replace: "{{ openai_api_key }}"
+      no_log: true
+      tags: [aichat, docker]
+
+    - name: Replace Z.AI API key placeholder in compose file
+      become: true
+      ansible.builtin.replace:
+        path: "{{ aichat_compose_path }}"
+        regexp: "%z_ai_api_key%"
+        replace: "{{ z_ai_api_key }}"
       no_log: true
       tags: [aichat, docker]
 

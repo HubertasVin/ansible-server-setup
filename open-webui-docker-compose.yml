@@ -7,7 +7,8 @@ services:
     environment:
       # External Providers
       - ENABLE_OPENAI_API=true
-      - OPENAI_API_KEY=%openai_api_key%
+      - OPENAI_API_BASE_URLS=https://api.openai.com/v1;https://api.z.ai/api/paas/v4
+      - OPENAI_API_KEYS=%openai_api_key%;%z_ai_api_key%
 
       # Web search via ddgs using DuckDuckGo backend
       - ENABLE_RAG_WEB_SEARCH=true
