@@ -26,6 +26,14 @@
         prompt: "Enter Z.AI API key"
         private: true
 
+      - name: mistral_api_key
+        prompt: "Enter Mistral API key"
+        private: true
+
+      - name: openrouter_api_key
+        prompt: "Enter OpenRouter API key"
+        private: true
+
   vars:
       server_main_user: "hubserv"
       home_dir: "/home/{{ server_main_user }}"
@@ -720,6 +728,24 @@
             path: "{{ aichat_compose_path }}"
             regexp: "%z_ai_api_key%"
             replace: "{{ z_ai_api_key }}"
+        no_log: true
+        tags: [aichat, docker]
+
+      - name: Replace Mistral API key placeholder in compose file
+        become: true
+        ansible.builtin.replace:
+            path: "{{ aichat_compose_path }}"
+            regexp: "%mistral_api_key%"
+            replace: "{{ mistral_api_key }}"
+        no_log: true
+        tags: [aichat, docker]
+
+      - name: Replace OpenRouter API key placeholder in compose file
+        become: true
+        ansible.builtin.replace:
+            path: "{{ aichat_compose_path }}"
+            regexp: "%openrouter_api_key%"
+            replace: "{{ openrouter_api_key }}"
         no_log: true
         tags: [aichat, docker]
 
