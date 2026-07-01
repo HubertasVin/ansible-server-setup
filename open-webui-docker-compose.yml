@@ -37,12 +37,12 @@ services:
 
       # Models
       # RAG
-      - RAG_EMBEDDING_MODEL=openai/text-embedding-3-small
+      - RAG_EMBEDDING_MODEL=openai/text-embedding-3-small:floor
       # Speech-to-text
-      - AUDIO_STT_MODEL=openai/whisper-1
+      - AUDIO_STT_MODEL=openai/whisper-1:floor
       # Image generation
       - ENABLE_IMAGE_GENERATION=false
-      - IMAGE_GENERATION_MODEL=openai/gpt-5-image-mini
+      - IMAGE_GENERATION_MODEL=openai/gpt-5-image-mini:floor
 
       # Web search via ddgs using DuckDuckGo backend
       - ENABLE_RAG_WEB_SEARCH=true
