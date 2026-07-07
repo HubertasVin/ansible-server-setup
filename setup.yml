@@ -470,6 +470,34 @@
         notify: Reload nginx
         tags: [nginx]
 
+      - name: Proxy for {{ detourpilot_api_domain }} (k3s ingress)
+        become: true
+        ansible.builtin.copy:
+            dest: "/etc/nginx/conf.d/{{ detourpilot_api_domain }}.conf"
+            mode: "0644"
+            content: |
+                server {
+                    listen 80;
+                    listen [::]:80;
+                    server_name {{ detourpilot_api_domain }};
+                    client_max_body_size 5000M;
+
+                    include /etc/nginx/snippets/letsencrypt.conf;
+
+                    location / {
+                        proxy_pass         http://127.0.0.1:{{ detourpilot_api_port }};
+                        proxy_set_header   Host              $host;
+                        proxy_set_header   X-Real-IP         $remote_addr;
+                        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                        proxy_set_header   X-Forwarded-Proto $scheme;
+                        proxy_read_timeout 600s;
+                        proxy_send_timeout 600s;
+                        send_timeout       600s;
+                    }
+                }
+        notify: Reload nginx
+        tags: [nginx]
+
       - name: Test nginx config
         become: true
         ansible.builtin.command: nginx -t
@@ -477,6 +505,17 @@
         changed_when: false
         failed_when: nginx_test.rc != 0
         tags: [nginx]
+
+      - name: Add cni0 to firewalld trusted zone (k3s pod networking)
+        become: true
+        ansible.posix.firewalld:
+            zone: trusted
+            interface: cni0
+            permanent: true
+            state: enabled
+            immediate: true
+        notify: Reload firewalld
+        tags: [firewall, k3s]
 
       # TLS via certbot (nginx plugin) + renew
       - name: Issue cert for {{ jelly_domain }}
@@ -528,6 +567,23 @@
                 - --redirect
         args:
             creates: "/etc/letsencrypt/live/{{ aichat_domain }}/fullchain.pem"
+        tags: [tls]
+
+      - name: Issue cert for {{ detourpilot_api_domain }}
+        become: true
+        ansible.builtin.command:
+            argv:
+                - certbot
+                - --nginx
+                - -d
+                - "{{ detourpilot_api_domain }}"
+                - --non-interactive
+                - --agree-tos
+                - --email
+                - "{{ certbot_email }}"
+                - --redirect
+        args:
+            creates: "/etc/letsencrypt/live/{{ detourpilot_api_domain }}/fullchain.pem"
         tags: [tls]
 
       - name: Restore SELinux contexts for certbot paths
