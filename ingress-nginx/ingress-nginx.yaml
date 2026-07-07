@@ -115,8 +115,6 @@ subjects:
     name: ingress-nginx
     namespace: ingress-nginx
 ---
-# Empty ConfigMap is fine; controller flags drive the bulk of
-# the configuration. Keep it so the --configmap flag resolves.
 apiVersion: v1
 data:
   allow-snippet-annotations: "true"
@@ -176,7 +174,6 @@ spec:
         app.kubernetes.io/part-of: ingress-nginx
         app.kubernetes.io/version: 1.13.0
     spec:
-      hostNetwork: true
       automountServiceAccountToken: true
       containers:
         - name: controller
@@ -188,6 +185,8 @@ spec:
             - --controller-class=k8s.io/ingress-nginx
             - --ingress-class=nginx
             - --configmap=$(POD_NAMESPACE)/ingress-nginx-controller
+            - --http-port=8080
+            - --https-port=8443
           env:
             - name: POD_NAME
               valueFrom:
@@ -213,13 +212,11 @@ spec:
             successThreshold: 1
             timeoutSeconds: 1
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               name: http
-              hostPort: 80
               protocol: TCP
-            - containerPort: 443
+            - containerPort: 8443
               name: https
-              hostPort: 443
               protocol: TCP
           readinessProbe:
             failureThreshold: 3
@@ -251,3 +248,32 @@ spec:
         kubernetes.io/os: linux
       serviceAccountName: ingress-nginx
       terminationGracePeriodSeconds: 300
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-nginx-controller
+  namespace: ingress-nginx
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/part-of: ingress-nginx
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30080
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: https
+      nodePort: 30443
+      protocol: TCP
