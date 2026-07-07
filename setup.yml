@@ -34,6 +34,10 @@
         prompt: "Enter OpenRouter API key"
         private: true
 
+      - name: brave_api_key
+        prompt: "Enter Brave API key"
+        private: true
+
   vars:
       server_main_user: "hubserv"
       home_dir: "/home/{{ server_main_user }}"
@@ -52,6 +56,7 @@
 
       aichat_dir: "{{ home_dir }}/apps/aichat"
       aichat_compose_path: "{{ aichat_dir }}/docker-compose.yml"
+      searxng_settings_path: "{{ aichat_dir }}/settings.yml"
 
   pre_tasks:
       - name: Enable RPM Fusion repos (Fedora)
@@ -640,6 +645,15 @@
         no_log: true
         tags: [aichat, docker]
 
+      - name: Replace Brave API key placeholder in compose file
+        become: true
+        ansible.builtin.replace:
+            path: "{{ aichat_compose_path }}"
+            regexp: "%brave_api_key%"
+            replace: "{{ brave_api_key }}"
+        no_log: true
+        tags: [aichat, docker]
+
       - name: Replace domain placeholder in compose file
         become: true
         ansible.builtin.replace:
@@ -647,6 +661,16 @@
             regexp: "%aichat_domain%"
             replace: "{{ aichat_domain }}"
         no_log: true
+        tags: [aichat, docker]
+
+      - name: Copy settings config for searxng
+        become: true
+        ansible.builtin.template:
+            src: searxng_settings.yml
+            dest: "{{ searxng_settings_path }}"
+            owner: "{{ server_main_user }}"
+            group: "{{ server_main_user }}"
+            mode: "0644"
         tags: [aichat, docker]
 
       - name: Bring up AI chat compose
