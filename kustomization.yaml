@@ -11,4 +11,9 @@ resources:
   - app-deployment.yaml
   - app-service.yaml
   - app-ingress.yaml
-  - ingress-nginx/kustomization.yaml
+  # ingress-nginx lives in its own namespace and contains a
+  # `Namespace` object of its own. Pulling it into a
+  # sub-kustomization means the global `namespace: detourpilot`
+  # is NOT applied to its resources (which would otherwise
+  # produce a Namespace-id conflict during `apply -k`).
+  - ingress-nginx
