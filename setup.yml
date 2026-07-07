@@ -38,6 +38,20 @@
         prompt: "Enter Brave API key"
         private: true
 
+      - name: gitlab_registry_username
+        prompt: |
+            ─── GitLab Container Registry deploy token ─────────────────────────────
+            Generate at: https://gitlab.com/detourpilot/back-end/-/settings/repository
+            → Deploy tokens → New deploy token
+            Scope: read_registry   (nothing else needed)
+            ─────────────────────────────────────────────────────────────────────────
+            Enter the deploy-token username (e.g. gitlab+deploy-token-NNN)
+        private: false
+
+      - name: gitlab_registry_password
+        prompt: "Enter the deploy-token password"
+        private: true
+
   vars:
       server_main_user: "hubserv"
       home_dir: "/home/{{ server_main_user }}"
@@ -59,11 +73,7 @@
       searxng_settings_path: "{{ aichat_dir }}/settings.yml"
 
       # k3s / DetourPilot
-      detourpilot_dir: "{{ home_dir }}/apps/detourpilot"
-      detourpilot_k8s_dir: "{{ detourpilot_dir }}/k8s"
       detourpilot_data_dir: "/var/lib/detourpilot/data"
-      detourpilot_image: "detourpilot-back-end:dev"
-      detourpilot_backend_src: "{{ detourpilot_dir }}/back-end"
 
   pre_tasks:
       - name: Enable RPM Fusion repos (Fedora)
@@ -139,11 +149,9 @@
       - name: Install k3s (lightweight Kubernetes)
         become: true
         ansible.builtin.shell: |
-            if command -v k3s >/dev/null 2>&1; then
-              echo "k3s already installed, skipping"
-              exit 0
+            if ! command -v k3s >/dev/null 2>&1; then
+              curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_SELINUX_RPM=true sh -
             fi
-            curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_SELINUX_RPM=true sh -
         args:
             creates: /usr/local/bin/k3s
         tags: [k3s]
@@ -537,7 +545,15 @@
         tags: [firewall, k3s]
 
       # k3s post-install: kubeconfig, data dir, manifests
-      - name: Copy kubeconfig for main user
+
+      - name: Wait for k3s node to be Ready
+        become: true
+        ansible.builtin.command:
+            cmd: /usr/local/bin/k3s kubectl wait --for=condition=Ready node --all --timeout=120s
+        changed_when: false
+        tags: [k3s]
+
+      - name: Copy kubeconfig to user home
         become: true
         ansible.builtin.copy:
             src: /etc/rancher/k3s/k3s.yaml
@@ -547,70 +563,6 @@
             mode: "0600"
             remote_src: true
         tags: [k3s]
-
-      - name: Ensure kubectl is available
-        become: true
-        ansible.builtin.file:
-            src: /usr/local/bin/k3s
-            dest: /usr/local/bin/kubectl
-            state: link
-        tags: [k3s]
-
-      - name: Ensure DetourPilot k8s dir exists
-        become: true
-        ansible.builtin.file:
-            path: "{{ detourpilot_k8s_dir }}"
-            state: directory
-            owner: "{{ server_main_user }}"
-            group: "{{ server_main_user }}"
-            mode: "0755"
-        tags: [detourpilot, k3s]
-
-      - name: Copy k8s manifests to VPS
-        become: true
-        ansible.builtin.copy:
-            src: "{{ item }}"
-            dest: "{{ detourpilot_k8s_dir }}/{{ item }}"
-            owner: "{{ server_main_user }}"
-            group: "{{ server_main_user }}"
-            mode: "0644"
-        loop:
-            - kustomization.yaml
-            - namespace.yaml
-            - postgres-secret.yaml
-            - postgres-statefulset.yaml
-            - postgres-service.yaml
-            - app-config.yaml
-            - app-secret.yaml
-            - app-deployment.yaml
-            - app-service.yaml
-            - app-ingress.yaml
-            - deploy.sh
-            - seed-data.sh
-        tags: [detourpilot, k3s]
-
-      - name: Copy ingress-nginx manifests to VPS
-        become: true
-        ansible.builtin.copy:
-            src: "{{ item }}"
-            dest: "{{ detourpilot_k8s_dir }}/ingress-nginx/{{ item }}"
-            owner: "{{ server_main_user }}"
-            group: "{{ server_main_user }}"
-            mode: "0644"
-        loop:
-            - ingress-nginx.yaml
-            - kustomization.yaml
-        tags: [detourpilot, k3s]
-
-      - name: Ensure deploy.sh and seed-data.sh are executable
-        become: true
-        ansible.builtin.file:
-            path: "{{ detourpilot_k8s_dir }}/{{ item }}"
-            mode: "0755"
-        loop:
-            - deploy.sh
-            - seed-data.sh
-        tags: [detourpilot, k3s]
 
       - name: Ensure hostPath data dir exists
         become: true
@@ -637,45 +589,34 @@
             - trips.json
         tags: [detourpilot, k3s]
 
-      # DetourPilot back-end image build + import
-      - name: Clone DetourPilot back-end source
-        become: true
-        become_user: "{{ server_main_user }}"
-        ansible.builtin.git:
-            repo: https://gitlab.com/detourpilot/back-end.git
-            dest: "{{ detourpilot_backend_src }}"
-            version: main
-            update: true
-            force: true
-        tags: [detourpilot, k3s]
-
-      - name: Build Docker image for back-end
-        become: true
-        community.docker.docker_image:
-            name: "{{ detourpilot_image }}"
-            build:
-                path: "{{ detourpilot_backend_src }}"
-                dockerfile: Dockerfile
-            source: build
-            force_source: true
-        tags: [detourpilot, k3s]
-
-      - name: Import Docker image into k3s containerd
-        become: true
-        ansible.builtin.shell: |
-            docker save {{ detourpilot_image }} | k3s ctr images import -
-        changed_when: true
-        tags: [detourpilot, k3s]
-
+      # DetourPilot — the image is pulled from GitLab Container Registry
+      # (registry.gitlab.com/detourpilot/back-end:latest).
+      # The deployment spec references that image; deploy.sh handles rollout.
       - name: Apply k8s manifests (kubectl apply -k)
         become: true
         become_user: "{{ server_main_user }}"
         ansible.builtin.command:
             cmd: kubectl apply -k .
-            chdir: "{{ detourpilot_k8s_dir }}"
+            chdir: "{{ playbook_dir }}"
         environment:
             KUBECONFIG: "{{ home_dir }}/.kube/config"
         changed_when: true
+        tags: [detourpilot, k3s]
+
+      - name: Create GitLab registry pull secret
+        become: true
+        become_user: "{{ server_main_user }}"
+        ansible.builtin.command:
+            cmd: >
+                kubectl -n detourpilot create secret docker-registry gitlab-registry
+                --docker-server=registry.gitlab.com
+                --docker-username="{{ gitlab_registry_username }}"
+                --docker-password="{{ gitlab_registry_password }}"
+                --dry-run=client -o yaml | kubectl apply -f -
+        environment:
+            KUBECONFIG: "{{ home_dir }}/.kube/config"
+        changed_when: true
+        no_log: true
         tags: [detourpilot, k3s]
 
       # TLS via certbot (nginx plugin) + renew
