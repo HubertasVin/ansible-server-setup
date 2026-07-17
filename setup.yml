@@ -108,6 +108,7 @@
                 - certbot
                 - python3-certbot-nginx
                 - rclone
+                - zlib-devel
             state: present
             update_cache: true
         when: ansible_os_family == "RedHat"
