@@ -60,6 +60,14 @@ services:
       # - WEB_SEARCH_ENGINE=searxng
       # - SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json&language=en
 
+      # Deep research (sub-agents with full tool access, incl. web search)
+      - ENABLE_SUBAGENTS=true
+      - SUBAGENTS_BACKGROUND_ENABLED=true
+      - SUBAGENTS_MAX_CONCURRENT=5
+      - SUBAGENTS_MAX_ASYNC=5
+      - SUBAGENTS_MAX_ITERATIONS=30
+      - SUBAGENTS_MAX_OUTPUT=30000
+
     networks:
       - owui-net
 
