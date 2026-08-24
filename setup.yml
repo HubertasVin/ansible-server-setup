@@ -498,7 +498,7 @@
         notify: Reload nginx
         tags: [nginx]
 
-      - name: Proxy for {{ detourpilot_api_domain }} (k3s ingress)
+      - name: Proxy for k3s ingress ({{ detourpilot_api_domain }})
         become: true
         ansible.builtin.copy:
             dest: "/etc/nginx/conf.d/{{ detourpilot_api_domain }}.conf"

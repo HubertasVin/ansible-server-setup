@@ -67,7 +67,10 @@ services:
       - SUBAGENTS_MAX_ASYNC=5
       - SUBAGENTS_MAX_ITERATIONS=30
       - SUBAGENTS_MAX_OUTPUT=30000
-      - SUBAGENTS_SYSTEM_PROMPT=Focus only on your assigned task. Cite every claim from web search or documents inline as markdown links [title](url), and end with a "Sources:" section listing all URLs used.
+      - >-
+        SUBAGENTS_SYSTEM_PROMPT=Focus only on your assigned task. Cite every
+        claim from web search or documents inline as markdown links
+        [title](url), and end with a "Sources:" section listing all URLs used.
 
     networks:
       - owui-net
