@@ -84,7 +84,7 @@
                 - "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-{{ ansible_facts['distribution_major_version'] }}.noarch.rpm"
             state: present
             disable_gpg_check: true
-        when: ansible_os_family == "RedHat"
+        when: ansible_facts['os_family'] == "RedHat"
         tags: [jellyfin]
 
       - name: Install base packages (Fedora)
@@ -111,7 +111,7 @@
                 - zlib-devel
             state: present
             update_cache: true
-        when: ansible_os_family == "RedHat"
+        when: ansible_facts['os_family'] == "RedHat"
         tags: [packages]
 
       - name: Prompt for fresh 2FA code
@@ -163,7 +163,7 @@
             name: jellyfin
             state: present
             update_cache: true
-        when: ansible_os_family == "RedHat"
+        when: ansible_facts['os_family'] == "RedHat"
         tags: [jellyfin]
 
       - name: Enable and start Jellyfin
@@ -342,8 +342,8 @@
             state: true
             persistent: true
         when:
-            - ansible_selinux is defined
-            - ansible_selinux.status == "enabled"
+            - ansible_facts['selinux'] is defined
+            - ansible_facts['selinux']['status'] == "enabled"
         tags: [selinux]
 
       # ACME webroot + websocket map
@@ -694,8 +694,8 @@
         ansible.builtin.command: restorecon -Rv /etc/letsencrypt /var/www/certbot
         changed_when: false
         when:
-            - ansible_selinux is defined
-            - ansible_selinux.status == "enabled"
+            - ansible_facts['selinux'] is defined
+            - ansible_facts['selinux']['status'] == "enabled"
         tags: [tls, selinux]
 
       - name: Restart nginx after TLS issuance
