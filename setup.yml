@@ -99,7 +99,7 @@
                 - moby-engine
                 - containerd
                 - docker-cli
-                - docker-compose-plugins
+                - docker-compose
                 - docker-buildx
                 - python3-docker
                 - borgbackup
