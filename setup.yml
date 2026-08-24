@@ -94,14 +94,14 @@
                 - ca-certificates
                 - curl
                 - gnupg2
-                - redhat-lsb-core
                 - acl
                 - python3-passlib
-                - docker-ce
-                - containerd
                 - moby-engine
-                - docker-compose
+                - containerd
+                - docker-cli
+                - docker-compose-plugins
                 - docker-buildx
+                - python3-docker
                 - borgbackup
                 - git
                 - nginx
