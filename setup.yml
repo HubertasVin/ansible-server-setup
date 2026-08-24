@@ -44,7 +44,14 @@
         private: true
 
       - name: github_token
-        prompt: "Enter GitHub token for obsidian-sync repo"
+        prompt: |
+            ─── GitHub fine-grained token for obsidian-sync ────────────────────────
+            Generate at: https://github.com/settings/personal-access-tokens
+            → Generate new token
+            Name: ansible-obsidian-sync
+            Repository access: Only select repositories
+            Permissions → Repository permissions → Contents: Read and write
+            ─────────────────────────────────────────────────────────────────────────
         private: true
 
       - name: gitlab_registry_username
@@ -54,7 +61,6 @@
             → Deploy tokens → New deploy token
             Scope: read_registry   (nothing else needed)
             ─────────────────────────────────────────────────────────────────────────
-            Enter the deploy-token username (e.g. gitlab+deploy-token-NNN)
         private: false
 
       - name: gitlab_registry_password
@@ -310,6 +316,7 @@
 
       # Borg backup
       - name: Ensure borg backup dir exists
+        become: true
         ansible.builtin.file:
             path: "{{ borg_backup_dir }}"
             state: directory
