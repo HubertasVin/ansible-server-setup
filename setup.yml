@@ -43,6 +43,10 @@
         prompt: "Enter Brave API key"
         private: true
 
+      - name: github_token
+        prompt: "Enter GitHub token for obsidian-sync repo"
+        private: true
+
       - name: gitlab_registry_username
         prompt: |
             ─── GitLab Container Registry deploy token ─────────────────────────────
@@ -280,11 +284,28 @@
             job: "/bin/bash {{ sync_script_path }} >> {{ sync_log_path }} 2>&1"
         tags: [obsidian, git]
 
+      - name: Copy sync script to server
+        ansible.builtin.copy:
+            src: sync-data.sh
+            dest: "{{ sync_script_path }}"
+            owner: "{{ server_main_user }}"
+            group: "{{ server_main_user }}"
+            mode: "0755"
+        tags: [obsidian, git]
+
       - name: Replace username placeholder in sync script
         ansible.builtin.replace:
             path: "{{ sync_script_path }}"
             regexp: "insert-user-name-here"
             replace: "{{ server_main_user }}"
+        tags: [obsidian, git]
+
+      - name: Replace GitHub token placeholder in sync script
+        ansible.builtin.replace:
+            path: "{{ sync_script_path }}"
+            regexp: 'GITHUB_TOKEN="replace-with-github-token"'
+            replace: 'GITHUB_TOKEN="{{ github_token }}"'
+        no_log: true
         tags: [obsidian, git]
 
       # Borg backup
