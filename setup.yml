@@ -252,6 +252,7 @@
         tags: [webdav]
 
       - name: Run WebDAV container
+        become: true
         community.docker.docker_container:
             name: webdav
             image: "{{ docker_image }}"
