@@ -588,6 +588,16 @@
         changed_when: false
         tags: [k3s]
 
+      - name: Ensure .kube dir exists in user home
+        become: true
+        ansible.builtin.file:
+            path: "{{ home_dir }}/.kube"
+            state: directory
+            owner: "{{ server_main_user }}"
+            group: "{{ server_main_user }}"
+            mode: "0700"
+        tags: [k3s]
+
       - name: Copy kubeconfig to user home
         become: true
         ansible.builtin.copy:
