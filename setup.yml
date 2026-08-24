@@ -154,11 +154,12 @@
       - name: Install k3s (lightweight Kubernetes)
         become: true
         ansible.builtin.shell: |
-            if ! command -v k3s >/dev/null 2>&1; then
-              curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_SELINUX_RPM=true sh -
+            set -o pipefail
+            if ! systemctl is-active --quiet k3s; then
+              curl -sfL https://get.k3s.io | sh -
             fi
-        args:
-            creates: /usr/local/bin/k3s
+        register: k3s_install
+        changed_when: k3s_install.stdout | length > 0
         tags: [k3s]
 
       - name: Install Jellyfin meta-package (server+web)
