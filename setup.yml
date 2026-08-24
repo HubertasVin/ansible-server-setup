@@ -6,6 +6,11 @@
       - "{{ secrets_file | default('secrets.dev.yml') }}"
 
   vars_prompt:
+      - name: server_main_user
+        prompt: "Enter main server username"
+        default: "mainuser"
+        private: false
+
       - name: server_main_password
         prompt: "Enter main server password for {{ server_main_user }}"
         private: true
@@ -53,7 +58,6 @@
         private: true
 
   vars:
-      server_main_user: "hubserv"
       home_dir: "/home/{{ server_main_user }}"
       uid: "1000"
       gid: "1000"
