@@ -12,7 +12,7 @@
         private: false
 
       - name: server_main_password
-        prompt: "Enter main server password for {{ server_main_user }}"
+        prompt: "Enter main server password"
         private: true
 
       - name: borg_repo_password
