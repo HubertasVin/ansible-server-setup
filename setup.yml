@@ -666,6 +666,12 @@
         mode: "0755"
       tags: [detourpilot, k3s]
 
+    - name: Check if deployment repo is already cloned
+      ansible.builtin.stat:
+        path: "{{ detourpilot_k8s_dir }}/.git"
+      register: detourpilot_git_dir
+      tags: [detourpilot, k3s]
+
     - name: Clone DetourPilot deployment repo (manifests)
       become: true
       become_user: "{{ server_main_user }}"
@@ -676,6 +682,7 @@
         update: true
         force: true
       no_log: true
+      when: not detourpilot_git_dir.stat.exists
       tags: [detourpilot, k3s]
 
     - name: Point seed-data Job hostPath at this server's user
