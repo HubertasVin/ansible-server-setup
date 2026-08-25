@@ -789,8 +789,8 @@
           - "{{ certbot_email }}"
           - --redirect
       args:
-      when: not (testing_mode | default(false) | bool)
         creates: "/etc/letsencrypt/live/{{ aichat_domain }}/fullchain.pem"
+      when: not (testing_mode | default(false) | bool)
       tags: [tls]
 
     - name: Issue cert for {{ detourpilot_api_domain }}
@@ -807,8 +807,8 @@
           - "{{ certbot_email }}"
           - --redirect
       args:
-      when: not (testing_mode | default(false) | bool)
         creates: "/etc/letsencrypt/live/{{ detourpilot_api_domain }}/fullchain.pem"
+      when: not (testing_mode | default(false) | bool)
       tags: [tls]
 
     - name: Restore SELinux contexts for certbot paths
