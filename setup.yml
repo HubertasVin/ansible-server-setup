@@ -43,14 +43,6 @@
       prompt: "Enter Brave API key"
       private: true
 
-    - name: gitlab_registry_username
-      prompt: "GitLab Container Registry username"
-      private: false
-
-    - name: gitlab_registry_password
-      prompt: "Enter the GitLab Registry password"
-      private: true
-
     - name: github_token
       prompt: |
         ─── GitHub fine-grained token for obsidian-sync ────────────────────────
@@ -61,7 +53,20 @@
         ─────────────────────────────────────────────────────────────────────────
       private: true
 
-    - name: gitlab_token
+    - name: gitlab_registry_username
+      prompt: |
+        ─── GitLab Container Registry deploy token ─────────────────────────────
+        Generate at: https://gitlab.com/detourpilot/back-end/-/settings/repository
+        → Deploy tokens → New deploy token
+        Scope: read_registry
+        ─────────────────────────────────────────────────────────────────────────
+      private: false
+
+    - name: gitlab_registry_password
+      prompt: "Enter the deploy-token password"
+      private: true
+
+    - name: gitlab_deployment_token
       prompt: |
         ─── GitLab token to clone detourpilot/deployment ──────────────────────
         Generate at: https://gitlab.com/-/user_settings/personal_access_tokens
@@ -673,7 +678,7 @@
       environment:
         GIT_CONFIG_COUNT: "1"
         GIT_CONFIG_KEY_0: http.extraheader
-        GIT_CONFIG_VALUE_0: "AUTHORIZATION: Basic {{ ('oauth2:' + gitlab_token) | b64encode }}"
+        GIT_CONFIG_VALUE_0: "AUTHORIZATION: Basic {{ ('oauth2:' + gitlab_deployment_token) | b64encode }}"
       no_log: true
       tags: [detourpilot, k3s]
 
