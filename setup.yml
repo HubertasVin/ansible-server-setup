@@ -3,940 +3,940 @@
   become: false
   # connection: local
   vars_files:
-      - "{{ secrets_file | default('secrets.dev.yml') }}"
+    - "{{ secrets_file | default('secrets.dev.yml') }}"
 
   vars_prompt:
-      - name: server_main_user
-        prompt: "Enter main server username"
-        default: "mainuser"
-        private: false
+    - name: server_main_user
+      prompt: "Enter main server username"
+      default: "mainuser"
+      private: false
 
-      - name: server_main_password
-        prompt: "Enter main server password"
-        private: true
+    - name: server_main_password
+      prompt: "Enter main server password"
+      private: true
 
-      - name: borg_repo_password
-        prompt: "Enter Borg repository password"
-        private: true
+    - name: borg_repo_password
+      prompt: "Enter Borg repository password"
+      private: true
 
-      - name: rclone_protondrive_password
-        prompt: "Enter Proton Drive password"
-        private: true
+    - name: rclone_protondrive_password
+      prompt: "Enter Proton Drive password"
+      private: true
 
-      - name: openai_api_key
-        prompt: "Enter OpenAI API key"
-        private: true
+    - name: openai_api_key
+      prompt: "Enter OpenAI API key"
+      private: true
 
-      - name: z_ai_api_key
-        prompt: "Enter Z.AI API key"
-        private: true
+    - name: z_ai_api_key
+      prompt: "Enter Z.AI API key"
+      private: true
 
-      - name: mistral_api_key
-        prompt: "Enter Mistral API key"
-        private: true
+    - name: mistral_api_key
+      prompt: "Enter Mistral API key"
+      private: true
 
-      - name: openrouter_api_key
-        prompt: "Enter OpenRouter API key"
-        private: true
+    - name: openrouter_api_key
+      prompt: "Enter OpenRouter API key"
+      private: true
 
-      - name: brave_api_key
-        prompt: "Enter Brave API key"
-        private: true
+    - name: brave_api_key
+      prompt: "Enter Brave API key"
+      private: true
 
-      - name: github_token
-        prompt: |
-            ─── GitHub fine-grained token for obsidian-sync ────────────────────────
-            Generate at: https://github.com/settings/personal-access-tokens
-            → Generate new token
-            Name: ansible-obsidian-sync
-            Repository access: Only select repositories
-            Permissions → Repository permissions → Contents: Read and write
-            ─────────────────────────────────────────────────────────────────────────
-        private: true
+    - name: github_token
+      prompt: |
+        ─── GitHub fine-grained token for obsidian-sync ────────────────────────
+        Generate at: https://github.com/settings/personal-access-tokens
+        → Generate new token
+        Name: ansible-obsidian-sync
+        Repository access: Only select repositories
+        Permissions → Repository permissions → Contents: Read and write
+        ─────────────────────────────────────────────────────────────────────────
+      private: true
 
-      - name: gitlab_registry_username
-        prompt: |
-            ─── GitLab Container Registry deploy token ─────────────────────────────
-            Generate at: https://gitlab.com/detourpilot/back-end/-/settings/repository
-            → Deploy tokens → New deploy token
-            Scope: read_registry   (nothing else needed)
-            ─────────────────────────────────────────────────────────────────────────
-        private: false
+    - name: gitlab_registry_username
+      prompt: |
+        ─── GitLab Container Registry deploy token ─────────────────────────────
+        Generate at: https://gitlab.com/detourpilot/back-end/-/settings/repository
+        → Deploy tokens → New deploy token
+        Scope: read_registry   (nothing else needed)
+        ─────────────────────────────────────────────────────────────────────────
+      private: false
 
-      - name: gitlab_registry_password
-        prompt: "Enter the deploy-token password"
-        private: true
+    - name: gitlab_registry_password
+      prompt: "Enter the deploy-token password"
+      private: true
 
   vars:
-      home_dir: "/home/{{ server_main_user }}"
-      uid: "1000"
-      gid: "1000"
+    home_dir: "/home/{{ server_main_user }}"
+    uid: "1000"
+    gid: "1000"
 
-      docker_image: "dgraziotin/nginx-webdav-nononsense"
-      dav_dir: "{{ home_dir }}/dav_data"
-      sync_script_path: "{{ home_dir }}/sync-data.sh"
-      sync_log_path: "{{ home_dir }}/sync-data.log"
+    docker_image: "dgraziotin/nginx-webdav-nononsense"
+    dav_dir: "{{ home_dir }}/dav_data"
+    sync_script_path: "{{ home_dir }}/sync-data.sh"
+    sync_log_path: "{{ home_dir }}/sync-data.log"
 
-      borg_user: borguser
-      borg_password: "{{ borg_repo_password }}"
-      borg_backup_dir: "/home/{{ borg_user }}/backups"
-      borg_repo_path: "{{ borg_backup_dir }}"
+    borg_user: borguser
+    borg_password: "{{ borg_repo_password }}"
+    borg_backup_dir: "/home/{{ borg_user }}/backups"
+    borg_repo_path: "{{ borg_backup_dir }}"
 
-      aichat_dir: "{{ home_dir }}/apps/aichat"
-      aichat_compose_path: "{{ aichat_dir }}/docker-compose.yml"
-      searxng_settings_path: "{{ aichat_dir }}/settings.yml"
+    aichat_dir: "{{ home_dir }}/apps/aichat"
+    aichat_compose_path: "{{ aichat_dir }}/docker-compose.yml"
+    searxng_settings_path: "{{ aichat_dir }}/settings.yml"
 
-      # k3s / DetourPilot
-      detourpilot_data_dir: "/var/lib/detourpilot/data"
+    # k3s / DetourPilot
+    detourpilot_data_dir: "/var/lib/detourpilot/data"
 
   pre_tasks:
-      - name: Enable RPM Fusion repos (Fedora)
-        become: true
-        ansible.builtin.dnf:
-            name:
-                - "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-{{ ansible_facts['distribution_major_version'] }}.noarch.rpm"
-                - "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-{{ ansible_facts['distribution_major_version'] }}.noarch.rpm"
-            state: present
-            disable_gpg_check: true
-        when: ansible_facts['os_family'] == "RedHat"
-        tags: [jellyfin]
+    - name: Enable RPM Fusion repos (Fedora)
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-{{ ansible_facts['distribution_major_version'] }}.noarch.rpm"
+          - "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-{{ ansible_facts['distribution_major_version'] }}.noarch.rpm"
+        state: present
+        disable_gpg_check: true
+      when: ansible_facts['os_family'] == "RedHat"
+      tags: [jellyfin]
 
-      - name: Install base packages (Fedora)
-        become: true
-        ansible.builtin.dnf:
-            name:
-                - ca-certificates
-                - curl
-                - gnupg2
-                - acl
-                - python3-passlib
-                - moby-engine
-                - containerd
-                - docker-cli
-                - docker-compose
-                - docker-buildx
-                - python3-docker
-                - borgbackup
-                - git
-                - nginx
-                - certbot
-                - python3-certbot-nginx
-                - rclone
-                - zlib-devel
-            state: present
-            update_cache: true
-        when: ansible_facts['os_family'] == "RedHat"
-        tags: [packages]
+    - name: Install base packages (Fedora)
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg2
+          - acl
+          - python3-passlib
+          - moby-engine
+          - containerd
+          - docker-cli
+          - docker-compose
+          - docker-buildx
+          - python3-docker
+          - borgbackup
+          - git
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+          - rclone
+          - zlib-devel
+        state: present
+        update_cache: true
+      when: ansible_facts['os_family'] == "RedHat"
+      tags: [packages]
 
-      - name: Prompt for fresh 2FA code
-        ansible.builtin.pause:
-            prompt: "Enter your Proton Drive 2FA code"
-            echo: true
-        register: rclone_protondrive_2fa
-        when: not (testing_mode | default(false) | bool)
-        tags: [rclone]
+    - name: Prompt for fresh 2FA code
+      ansible.builtin.pause:
+        prompt: "Enter your Proton Drive 2FA code"
+        echo: true
+      register: rclone_protondrive_2fa
+      when: not (testing_mode | default(false) | bool)
+      tags: [rclone]
 
-      - name: Configure rclone with fresh 2FA
-        become: true
-        become_user: "{{ server_main_user }}"
-        ansible.builtin.shell: |
-            rclone config create "ProtonDrive" protondrive \
-              username "{{ rclone_protondrive_email }}" \
-              password "{{ rclone_protondrive_password }}" \
-              2fa "{{ rclone_protondrive_2fa.user_input }}"
-        args:
-            creates: "{{ home_dir }}/.config/rclone/rclone.conf"
-        no_log: true
-        when: not (testing_mode | default(false) | bool)
-        tags: [rclone]
+    - name: Configure rclone with fresh 2FA
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.shell: |
+        rclone config create "ProtonDrive" protondrive \
+          username "{{ rclone_protondrive_email }}" \
+          password "{{ rclone_protondrive_password }}" \
+          2fa "{{ rclone_protondrive_2fa.user_input }}"
+      args:
+        creates: "{{ home_dir }}/.config/rclone/rclone.conf"
+      no_log: true
+      when: not (testing_mode | default(false) | bool)
+      tags: [rclone]
 
-      - name: Enable/start Docker & Nginx
-        become: true
-        ansible.builtin.service:
-            name: "{{ item }}"
-            state: started
-            enabled: true
-        loop:
-            - docker
-            - nginx
-        tags: [services]
+    - name: Enable/start Docker & Nginx
+      become: true
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - docker
+        - nginx
+      tags: [services]
 
-      - name: Install k3s (lightweight Kubernetes)
-        become: true
-        ansible.builtin.shell: |
-            set -o pipefail
-            if ! systemctl is-active --quiet k3s; then
-              curl -sfL https://get.k3s.io | sh -
-            fi
-        register: k3s_install
-        changed_when: k3s_install.stdout | length > 0
-        tags: [k3s]
+    - name: Install k3s (lightweight Kubernetes)
+      become: true
+      ansible.builtin.shell: |
+        set -o pipefail
+        if ! systemctl is-active --quiet k3s; then
+          curl -sfL https://get.k3s.io | sh -
+        fi
+      register: k3s_install
+      changed_when: k3s_install.stdout | length > 0
+      tags: [k3s]
 
-      - name: Install Jellyfin meta-package (server+web)
-        become: true
-        ansible.builtin.dnf:
-            name: jellyfin
-            state: present
-            update_cache: true
-        when: ansible_facts['os_family'] == "RedHat"
-        tags: [jellyfin]
+    - name: Install Jellyfin meta-package (server+web)
+      become: true
+      ansible.builtin.dnf:
+        name: jellyfin
+        state: present
+        update_cache: true
+      when: ansible_facts['os_family'] == "RedHat"
+      tags: [jellyfin]
 
-      - name: Enable and start Jellyfin
-        become: true
-        ansible.builtin.service:
-            name: jellyfin
-            state: started
-            enabled: true
-        tags: [jellyfin]
+    - name: Enable and start Jellyfin
+      become: true
+      ansible.builtin.service:
+        name: jellyfin
+        state: started
+        enabled: true
+      tags: [jellyfin]
 
   tasks:
-      # Users & permissions
-      - name: Ensure main user exists
-        become: true
-        ansible.builtin.user:
-            name: "{{ server_main_user }}"
-            state: present
-            home: "{{ home_dir }}"
-            shell: /bin/bash
-        tags: [users]
+    # Users & permissions
+    - name: Ensure main user exists
+      become: true
+      ansible.builtin.user:
+        name: "{{ server_main_user }}"
+        state: present
+        home: "{{ home_dir }}"
+        shell: /bin/bash
+      tags: [users]
 
-      - name: Set password for main user
-        become: true
-        ansible.builtin.user:
-            name: "{{ server_main_user }}"
-            password: "{{ server_main_password | password_hash('sha512') }}"
-            update_password: always
-        tags: [users]
+    - name: Set password for main user
+      become: true
+      ansible.builtin.user:
+        name: "{{ server_main_user }}"
+        password: "{{ server_main_password | password_hash('sha512') }}"
+        update_password: always
+      tags: [users]
 
-      - name: Allow passwordless sudo for user {{ server_main_user }}
-        become: true
-        ansible.builtin.copy:
-            dest: "/etc/sudoers.d/{{ server_main_user }}"
-            content: "{{ server_main_user }} ALL=(ALL) NOPASSWD:ALL"
-            owner: root
-            group: root
-            mode: "0440"
-        tags: [users]
+    - name: Allow passwordless sudo for user {{ server_main_user }}
+      become: true
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ server_main_user }}"
+        content: "{{ server_main_user }} ALL=(ALL) NOPASSWD:ALL"
+        owner: root
+        group: root
+        mode: "0440"
+      tags: [users]
 
-      - name: Ensure borg user exists
-        become: true
-        ansible.builtin.user:
-            name: "{{ borg_user }}"
-            state: present
-            home: "/home/{{ borg_user }}"
-            shell: "/bin/bash"
-        tags: [users, borg]
+    - name: Ensure borg user exists
+      become: true
+      ansible.builtin.user:
+        name: "{{ borg_user }}"
+        state: present
+        home: "/home/{{ borg_user }}"
+        shell: "/bin/bash"
+      tags: [users, borg]
 
-      - name: Set password for borg user
-        become: true
-        ansible.builtin.user:
-            name: "{{ borg_user }}"
-            password: "{{ borg_password | password_hash('sha512') }}"
-            update_password: always
-        no_log: true
-        tags: [users, borg]
+    - name: Set password for borg user
+      become: true
+      ansible.builtin.user:
+        name: "{{ borg_user }}"
+        password: "{{ borg_password | password_hash('sha512') }}"
+        update_password: always
+      no_log: true
+      tags: [users, borg]
 
-      - name: Ensure docker group exists
-        become: true
-        ansible.builtin.group:
-            name: docker
-            state: present
-        tags: [users, docker]
+    - name: Ensure docker group exists
+      become: true
+      ansible.builtin.group:
+        name: docker
+        state: present
+      tags: [users, docker]
 
-      - name: Add user to docker group - {{ server_main_user }}
-        become: true
-        ansible.builtin.user:
-            name: "{{ server_main_user }}"
-            groups: docker
-            append: true
-        tags: [users, docker]
+    - name: Add user to docker group - {{ server_main_user }}
+      become: true
+      ansible.builtin.user:
+        name: "{{ server_main_user }}"
+        groups: docker
+        append: true
+      tags: [users, docker]
 
-      # WebDAV container
-      - name: Create WebDAV data dir
-        ansible.builtin.file:
-            path: "{{ dav_dir }}"
-            state: directory
-            owner: "{{ uid }}"
-            group: "{{ gid }}"
-            mode: "0755"
-        tags: [webdav]
+    # WebDAV container
+    - name: Create WebDAV data dir
+      ansible.builtin.file:
+        path: "{{ dav_dir }}"
+        state: directory
+        owner: "{{ uid }}"
+        group: "{{ gid }}"
+        mode: "0755"
+      tags: [webdav]
 
-      - name: Run WebDAV container
-        become: true
-        community.docker.docker_container:
-            name: webdav
-            image: "{{ docker_image }}"
-            published_ports:
-                - "0.0.0.0:8080:80"
-            volumes:
-                - "{{ dav_dir }}:/data:Z"
-            env:
-                WEBDAV_USERNAME: "{{ server_main_user }}"
-                WEBDAV_PASSWORD: "{{ server_main_password }}"
-                PUID: "{{ uid }}"
-                PGID: "{{ gid }}"
-            restart_policy: always
-            state: started
-            detach: true
-        no_log: true
-        tags: [webdav, docker]
+    - name: Run WebDAV container
+      become: true
+      community.docker.docker_container:
+        name: webdav
+        image: "{{ docker_image }}"
+        published_ports:
+          - "0.0.0.0:8080:80"
+        volumes:
+          - "{{ dav_dir }}:/data:Z"
+        env:
+          WEBDAV_USERNAME: "{{ server_main_user }}"
+          WEBDAV_PASSWORD: "{{ server_main_password }}"
+          PUID: "{{ uid }}"
+          PGID: "{{ gid }}"
+        restart_policy: always
+        state: started
+        detach: true
+      no_log: true
+      tags: [webdav, docker]
 
-      - name: Add cron job for daily WebDAV sync
-        become: true
-        ansible.builtin.cron:
-            name: "Daily dav sync"
-            minute: "0"
-            hour: "2"
-            job: "/bin/bash {{ sync_script_path }} >> {{ sync_log_path }} 2>&1"
-        tags: [obsidian, git]
+    - name: Add cron job for daily WebDAV sync
+      become: true
+      ansible.builtin.cron:
+        name: "Daily dav sync"
+        minute: "0"
+        hour: "2"
+        job: "/bin/bash {{ sync_script_path }} >> {{ sync_log_path }} 2>&1"
+      tags: [obsidian, git]
 
-      - name: Copy sync script to server
-        ansible.builtin.copy:
-            src: sync-data.sh
-            dest: "{{ sync_script_path }}"
-            owner: "{{ server_main_user }}"
-            group: "{{ server_main_user }}"
-            mode: "0755"
-        tags: [obsidian, git]
+    - name: Copy sync script to server
+      ansible.builtin.copy:
+        src: sync-data.sh
+        dest: "{{ sync_script_path }}"
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0755"
+      tags: [obsidian, git]
 
-      - name: Replace username placeholder in sync script
-        ansible.builtin.replace:
-            path: "{{ sync_script_path }}"
-            regexp: "insert-user-name-here"
-            replace: "{{ server_main_user }}"
-        tags: [obsidian, git]
+    - name: Replace username placeholder in sync script
+      ansible.builtin.replace:
+        path: "{{ sync_script_path }}"
+        regexp: "insert-user-name-here"
+        replace: "{{ server_main_user }}"
+      tags: [obsidian, git]
 
-      - name: Replace GitHub token placeholder in sync script
-        ansible.builtin.replace:
-            path: "{{ sync_script_path }}"
-            regexp: 'GITHUB_TOKEN="replace-with-github-token"'
-            replace: 'GITHUB_TOKEN="{{ github_token }}"'
-        no_log: true
-        tags: [obsidian, git]
+    - name: Replace GitHub token placeholder in sync script
+      ansible.builtin.replace:
+        path: "{{ sync_script_path }}"
+        regexp: 'GITHUB_TOKEN="replace-with-github-token"'
+        replace: 'GITHUB_TOKEN="{{ github_token }}"'
+      no_log: true
+      tags: [obsidian, git]
 
-      # Borg backup
-      - name: Ensure borg backup dir exists
-        become: true
-        ansible.builtin.file:
-            path: "{{ borg_backup_dir }}"
-            state: directory
-            owner: "{{ borg_user }}"
-            group: "{{ borg_user }}"
-            mode: "0755"
-        tags: [borg]
+    # Borg backup
+    - name: Ensure borg backup dir exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ borg_backup_dir }}"
+        state: directory
+        owner: "{{ borg_user }}"
+        group: "{{ borg_user }}"
+        mode: "0755"
+      tags: [borg]
 
-      - name: Init borg repository (one-time)
-        become: true
-        become_user: "{{ borg_user }}"
-        ansible.builtin.shell: |
-            set -euo pipefail
-            export BORG_PASSPHRASE='{{ borg_repo_password }}'
-            borg init --encryption=repokey {{ borg_repo_path }}
-        args:
-            creates: "{{ borg_repo_path }}/config"
-        no_log: true
-        tags: [borg]
+    - name: Init borg repository (one-time)
+      become: true
+      become_user: "{{ borg_user }}"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export BORG_PASSPHRASE='{{ borg_repo_password }}'
+        borg init --encryption=repokey {{ borg_repo_path }}
+      args:
+        creates: "{{ borg_repo_path }}/config"
+      no_log: true
+      tags: [borg]
 
-      - name: Fix permissions for borg repo
-        become: true
-        ansible.builtin.file:
-            path: "{{ borg_backup_dir }}"
-            recurse: true
-            owner: "{{ borg_user }}"
-            group: "{{ borg_user }}"
-            mode: "0755"
-        tags: [borg]
+    - name: Fix permissions for borg repo
+      become: true
+      ansible.builtin.file:
+        path: "{{ borg_backup_dir }}"
+        recurse: true
+        owner: "{{ borg_user }}"
+        group: "{{ borg_user }}"
+        mode: "0755"
+      tags: [borg]
 
-      # Firewall & SELinux
-      - name: Ensure firewalld is enabled and running
-        become: true
-        ansible.builtin.service:
-            name: firewalld
-            state: started
-            enabled: true
-        tags: [firewall]
+    # Firewall & SELinux
+    - name: Ensure firewalld is enabled and running
+      become: true
+      ansible.builtin.service:
+        name: firewalld
+        state: started
+        enabled: true
+      tags: [firewall]
 
-      - name: Open HTTP/HTTPS
-        become: true
-        ansible.posix.firewalld:
-            service: "{{ item }}"
-            permanent: true
-            state: enabled
-            immediate: true
-        loop:
-            - http
-            - https
-        notify: Reload firewalld
-        tags: [firewall]
+    - name: Open HTTP/HTTPS
+      become: true
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: true
+        state: enabled
+        immediate: true
+      loop:
+        - http
+        - https
+      notify: Reload firewalld
+      tags: [firewall]
 
-      - name: Allow nginx outbound network (SELinux)
-        become: true
-        ansible.posix.seboolean:
-            name: httpd_can_network_connect
-            state: true
-            persistent: true
-        when:
-            - ansible_facts['selinux'] is defined
-            - ansible_facts['selinux']['status'] == "enabled"
-        tags: [selinux]
+    - name: Allow nginx outbound network (SELinux)
+      become: true
+      ansible.posix.seboolean:
+        name: httpd_can_network_connect
+        state: true
+        persistent: true
+      when:
+        - ansible_facts['selinux'] is defined
+        - ansible_facts['selinux']['status'] == "enabled"
+      tags: [selinux]
 
-      # ACME webroot + websocket map
-      - name: Create ACME webroot
-        become: true
-        ansible.builtin.file:
-            path: /var/www/certbot/.well-known/acme-challenge
-            state: directory
-            owner: root
-            group: root
-            mode: "0755"
-        tags: [nginx, tls]
+    # ACME webroot + websocket map
+    - name: Create ACME webroot
+      become: true
+      ansible.builtin.file:
+        path: /var/www/certbot/.well-known/acme-challenge
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [nginx, tls]
 
-      - name: Ensure nginx conf.d exists
-        become: true
-        ansible.builtin.file:
-            path: /etc/nginx/conf.d
-            state: directory
-            owner: root
-            group: root
-            mode: "0755"
-        tags: [nginx]
+    - name: Ensure nginx conf.d exists
+      become: true
+      ansible.builtin.file:
+        path: /etc/nginx/conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [nginx]
 
-      - name: Ensure nginx snippets dir exists
-        become: true
-        ansible.builtin.file:
-            path: /etc/nginx/snippets
-            state: directory
-            owner: root
-            group: root
-            mode: "0755"
-        tags: [nginx, tls]
+    - name: Ensure nginx snippets dir exists
+      become: true
+      ansible.builtin.file:
+        path: /etc/nginx/snippets
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [nginx, tls]
 
-      - name: Write letsencrypt snippet (serve challenges)
-        become: true
-        ansible.builtin.copy:
-            dest: /etc/nginx/snippets/letsencrypt.conf
-            mode: "0644"
-            content: |
-                location ^~ /.well-known/acme-challenge/ {
-                    alias /var/www/certbot/.well-known/acme-challenge/;
-                    default_type "text/plain";
-                    try_files $uri =404;
-                }
-        notify: Reload nginx
-        tags: [nginx, tls]
+    - name: Write letsencrypt snippet (serve challenges)
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/nginx/snippets/letsencrypt.conf
+        mode: "0644"
+        content: |
+          location ^~ /.well-known/acme-challenge/ {
+              alias /var/www/certbot/.well-known/acme-challenge/;
+              default_type "text/plain";
+              try_files $uri =404;
+          }
+      notify: Reload nginx
+      tags: [nginx, tls]
 
-      - name: WebSocket upgrade map (used by Immich)
-        become: true
-        ansible.builtin.copy:
-            dest: /etc/nginx/conf.d/00_websocket_map.conf
-            mode: "0644"
-            content: |
-                map $http_upgrade $connection_upgrade {
-                  default upgrade;
-                  ''      close;
-                }
-        notify: Reload nginx
-        tags: [nginx]
+    - name: WebSocket upgrade map (used by Immich)
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/nginx/conf.d/00_websocket_map.conf
+        mode: "0644"
+        content: |
+          map $http_upgrade $connection_upgrade {
+            default upgrade;
+            ''      close;
+          }
+      notify: Reload nginx
+      tags: [nginx]
 
-      # Nginx reverse proxies (HTTP)
-      - name: Proxy for {{ jelly_domain }}
-        become: true
-        ansible.builtin.copy:
-            dest: /etc/nginx/conf.d/{{ jelly_domain }}.conf
-            mode: "0644"
-            content: |
-                server {
-                    listen 80;
-                    listen [::]:80;
-                    server_name {{ jelly_domain }};
+    # Nginx reverse proxies (HTTP)
+    - name: Proxy for {{ jelly_domain }}
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/nginx/conf.d/{{ jelly_domain }}.conf
+        mode: "0644"
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name {{ jelly_domain }};
 
-                    include /etc/nginx/snippets/letsencrypt.conf;
+              include /etc/nginx/snippets/letsencrypt.conf;
 
-                    location / {
-                        proxy_pass         http://127.0.0.1:8096;
-                        proxy_set_header   Host              $host;
-                        proxy_set_header   X-Real-IP         $remote_addr;
-                        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-                        proxy_set_header   X-Forwarded-Proto $scheme;
-                        proxy_read_timeout 90;
-                    }
-                }
-        notify: Reload nginx
-        tags: [nginx]
+              location / {
+                  proxy_pass         http://127.0.0.1:8096;
+                  proxy_set_header   Host              $host;
+                  proxy_set_header   X-Real-IP         $remote_addr;
+                  proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_read_timeout 90;
+              }
+          }
+      notify: Reload nginx
+      tags: [nginx]
 
-      - name: Proxy for {{ immich_domain }}
-        become: true
-        ansible.builtin.copy:
-            dest: /etc/nginx/conf.d/{{ immich_domain }}.conf
-            mode: "0644"
-            content: |
-                server {
-                    listen 80;
-                    listen [::]:80;
-                    server_name {{ immich_domain }};
-                    client_max_body_size 5000M;
+    - name: Proxy for {{ immich_domain }}
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/nginx/conf.d/{{ immich_domain }}.conf
+        mode: "0644"
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name {{ immich_domain }};
+              client_max_body_size 5000M;
 
-                    include /etc/nginx/snippets/letsencrypt.conf;
+              include /etc/nginx/snippets/letsencrypt.conf;
 
-                    proxy_set_header Host              $http_host;
-                    proxy_set_header X-Real-IP         $remote_addr;
-                    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-                    proxy_set_header X-Forwarded-Proto $scheme;
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade           $http_upgrade;
-                    proxy_set_header Connection        $connection_upgrade;
+              proxy_set_header Host              $http_host;
+              proxy_set_header X-Real-IP         $remote_addr;
+              proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade           $http_upgrade;
+              proxy_set_header Connection        $connection_upgrade;
 
-                    proxy_read_timeout  600s;
-                    proxy_send_timeout  600s;
-                    send_timeout        600s;
+              proxy_read_timeout  600s;
+              proxy_send_timeout  600s;
+              send_timeout        600s;
 
-                    location / {
-                        proxy_pass http://127.0.0.1:2283;
-                    }
+              location / {
+                  proxy_pass http://127.0.0.1:2283;
+              }
 
-                    location = /.well-known/immich {
-                        proxy_pass http://127.0.0.1:2283;
-                    }
-                }
-        notify: Reload nginx
-        tags: [nginx]
+              location = /.well-known/immich {
+                  proxy_pass http://127.0.0.1:2283;
+              }
+          }
+      notify: Reload nginx
+      tags: [nginx]
 
-      - name: Proxy for {{ aichat_domain }}
-        become: true
-        ansible.builtin.copy:
-            dest: "/etc/nginx/conf.d/{{ aichat_domain }}.conf"
-            mode: "0644"
-            content: |
-                server {
-                    listen 80;
-                    listen [::]:80;
-                    server_name {{ aichat_domain }};
-                    client_max_body_size 5000M;
+    - name: Proxy for {{ aichat_domain }}
+      become: true
+      ansible.builtin.copy:
+        dest: "/etc/nginx/conf.d/{{ aichat_domain }}.conf"
+        mode: "0644"
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name {{ aichat_domain }};
+              client_max_body_size 5000M;
 
-                    include /etc/nginx/snippets/letsencrypt.conf;
+              include /etc/nginx/snippets/letsencrypt.conf;
 
-                    location / {
-                        proxy_pass         http://127.0.0.1:{{ aichat_web_port }};
+              location / {
+                  proxy_pass         http://127.0.0.1:{{ aichat_web_port }};
 
-                        proxy_http_version 1.1;
-                        proxy_buffering off;
-                        proxy_set_header   Host              $host;
-                        proxy_set_header   X-Real-IP         $remote_addr;
-                        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-                        proxy_set_header   X-Forwarded-Proto $scheme;
-                        proxy_set_header   Upgrade           $http_upgrade;
-                        proxy_set_header   Connection        "upgrade";
-                        proxy_read_timeout 300;
-                    }
-                }
-        notify: Reload nginx
-        tags: [nginx]
+                  proxy_http_version 1.1;
+                  proxy_buffering off;
+                  proxy_set_header   Host              $host;
+                  proxy_set_header   X-Real-IP         $remote_addr;
+                  proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_set_header   Upgrade           $http_upgrade;
+                  proxy_set_header   Connection        "upgrade";
+                  proxy_read_timeout 300;
+              }
+          }
+      notify: Reload nginx
+      tags: [nginx]
 
-      - name: Proxy for k3s ingress ({{ detourpilot_api_domain }})
-        become: true
-        ansible.builtin.copy:
-            dest: "/etc/nginx/conf.d/{{ detourpilot_api_domain }}.conf"
-            mode: "0644"
-            content: |
-                server {
-                    listen 80;
-                    listen [::]:80;
-                    server_name {{ detourpilot_api_domain }};
-                    client_max_body_size 5000M;
+    - name: Proxy for k3s ingress ({{ detourpilot_api_domain }})
+      become: true
+      ansible.builtin.copy:
+        dest: "/etc/nginx/conf.d/{{ detourpilot_api_domain }}.conf"
+        mode: "0644"
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name {{ detourpilot_api_domain }};
+              client_max_body_size 5000M;
 
-                    include /etc/nginx/snippets/letsencrypt.conf;
+              include /etc/nginx/snippets/letsencrypt.conf;
 
-                    location / {
-                        proxy_pass         http://127.0.0.1:{{ detourpilot_api_port }};
-                        proxy_set_header   Host              $host;
-                        proxy_set_header   X-Real-IP         $remote_addr;
-                        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-                        proxy_set_header   X-Forwarded-Proto $scheme;
-                        proxy_read_timeout 600s;
-                        proxy_send_timeout 600s;
-                        send_timeout       600s;
-                    }
-                }
-        notify: Reload nginx
-        tags: [nginx]
+              location / {
+                  proxy_pass         http://127.0.0.1:{{ detourpilot_api_port }};
+                  proxy_set_header   Host              $host;
+                  proxy_set_header   X-Real-IP         $remote_addr;
+                  proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_read_timeout 600s;
+                  proxy_send_timeout 600s;
+                  send_timeout       600s;
+              }
+          }
+      notify: Reload nginx
+      tags: [nginx]
 
-      - name: Test nginx config
-        become: true
-        ansible.builtin.command: nginx -t
-        register: nginx_test
-        changed_when: false
-        failed_when: nginx_test.rc != 0
-        tags: [nginx]
+    - name: Test nginx config
+      become: true
+      ansible.builtin.command: nginx -t
+      register: nginx_test
+      changed_when: false
+      failed_when: nginx_test.rc != 0
+      tags: [nginx]
 
-      - name: Add cni0 to firewalld trusted zone (k3s pod networking)
-        become: true
-        ansible.posix.firewalld:
-            zone: trusted
-            interface: cni0
-            permanent: true
-            state: enabled
-            immediate: true
-        notify: Reload firewalld
-        tags: [firewall, k3s]
+    - name: Add cni0 to firewalld trusted zone (k3s pod networking)
+      become: true
+      ansible.posix.firewalld:
+        zone: trusted
+        interface: cni0
+        permanent: true
+        state: enabled
+        immediate: true
+      notify: Reload firewalld
+      tags: [firewall, k3s]
 
-      # k3s post-install: kubeconfig, data dir, manifests
+    # k3s post-install: kubeconfig, data dir, manifests
 
-      - name: Wait for k3s node to be Ready
-        become: true
-        ansible.builtin.command:
-            cmd: /usr/local/bin/k3s kubectl wait --for=condition=Ready node --all --timeout=120s
-        changed_when: false
-        tags: [k3s]
+    - name: Wait for k3s node to be Ready
+      become: true
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s kubectl wait --for=condition=Ready node --all --timeout=120s
+      changed_when: false
+      tags: [k3s]
 
-      - name: Ensure .kube dir exists in user home
-        become: true
-        ansible.builtin.file:
-            path: "{{ home_dir }}/.kube"
-            state: directory
-            owner: "{{ server_main_user }}"
-            group: "{{ server_main_user }}"
-            mode: "0700"
-        tags: [k3s]
+    - name: Ensure .kube dir exists in user home
+      become: true
+      ansible.builtin.file:
+        path: "{{ home_dir }}/.kube"
+        state: directory
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0700"
+      tags: [k3s]
 
-      - name: Copy kubeconfig to user home
-        become: true
-        ansible.builtin.copy:
-            src: /etc/rancher/k3s/k3s.yaml
-            dest: "{{ home_dir }}/.kube/config"
-            owner: "{{ server_main_user }}"
-            group: "{{ server_main_user }}"
-            mode: "0600"
-            remote_src: true
-        tags: [k3s]
+    - name: Copy kubeconfig to user home
+      become: true
+      ansible.builtin.copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ home_dir }}/.kube/config"
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0600"
+        remote_src: true
+      tags: [k3s]
 
-      - name: Ensure hostPath data dir exists (user-writable for scp)
-        become: true
-        ansible.builtin.file:
-            path: "{{ detourpilot_data_dir }}"
-            state: directory
-            owner: "{{ server_main_user }}"
-            group: "{{ server_main_user }}"
-            mode: "0755"
-        tags: [detourpilot, k3s]
+    - name: Ensure hostPath data dir exists (user-writable for scp)
+      become: true
+      ansible.builtin.file:
+        path: "{{ detourpilot_data_dir }}"
+        state: directory
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0755"
+      tags: [detourpilot, k3s]
 
-      - name: Wait for DetourPilot data files on server
-        ansible.builtin.pause:
-            prompt: |
-                Copy the DetourPilot data files to {{ detourpilot_data_dir }}/ to the server:
-                  - places.json
-                  - trips.json
-                  - geocode.json
-                  - ranking.json
-                scp places.json trips.json geocode.json ranking.json {{ server_main_user }}@<host>:{{ detourpilot_data_dir }}/
-        tags: [detourpilot, k3s]
-
-      - name: Check DetourPilot data files were copied
-        ansible.builtin.stat:
-            path: "{{ detourpilot_data_dir }}/{{ item }}"
-        register: detourpilot_data
-        loop:
+    - name: Wait for DetourPilot data files on server
+      ansible.builtin.pause:
+        prompt: |
+          Copy the DetourPilot data files to {{ detourpilot_data_dir }}/ to the server:
             - places.json
             - trips.json
             - geocode.json
             - ranking.json
-        tags: [detourpilot, k3s]
+          scp places.json trips.json geocode.json ranking.json {{ server_main_user }}@<host>:{{ detourpilot_data_dir }}/
+      tags: [detourpilot, k3s]
 
-      - name: Fail if any data file is missing
-        ansible.builtin.assert:
-            that: detourpilot_data.results | map(attribute='stat.exists') | list | all
-            fail_msg: "Missing data files in {{ detourpilot_data_dir }}/ - copy over files places.json, trips.json, geocode.json, ranking.json and re-run"
-        tags: [detourpilot, k3s]
+    - name: Check DetourPilot data files were copied
+      ansible.builtin.stat:
+        path: "{{ detourpilot_data_dir }}/{{ item }}"
+      register: detourpilot_data
+      loop:
+        - places.json
+        - trips.json
+        - geocode.json
+        - ranking.json
+      tags: [detourpilot, k3s]
 
-      - name: Fix ownership of data dir for app (uid 65532)
-        become: true
-        ansible.builtin.file:
-            path: "{{ detourpilot_data_dir }}"
-            recurse: true
-            owner: "65532"
-            group: "65532"
-        tags: [detourpilot, k3s]
+    - name: Fail if any data file is missing
+      ansible.builtin.assert:
+        that: detourpilot_data.results | map(attribute='stat.exists') | list | all
+        fail_msg: "Missing data files in {{ detourpilot_data_dir }}/ - copy over files places.json, trips.json, geocode.json, ranking.json and re-run"
+      tags: [detourpilot, k3s]
 
-      - name: Set data file permissions
-        become: true
-        ansible.builtin.file:
-            path: "{{ detourpilot_data_dir }}/{{ item }}"
-            mode: "0644"
-        loop:
-            - trips.json
-            - geocode.json
-            - ranking.json
-            - places.json
-        tags: [detourpilot, k3s]
+    - name: Fix ownership of data dir for app (uid 65532)
+      become: true
+      ansible.builtin.file:
+        path: "{{ detourpilot_data_dir }}"
+        recurse: true
+        owner: "65532"
+        group: "65532"
+      tags: [detourpilot, k3s]
 
-      # DetourPilot — the image is pulled from GitLab Container Registry
-      # (registry.gitlab.com/detourpilot/back-end:latest).
-      # The deployment spec references that image; deploy.sh handles rollout.
-      - name: Apply k8s manifests (kubectl apply -k)
-        become: true
-        become_user: "{{ server_main_user }}"
-        ansible.builtin.command:
-            cmd: kubectl apply -k .
-            chdir: "{{ playbook_dir }}"
-        environment:
-            KUBECONFIG: "{{ home_dir }}/.kube/config"
-        changed_when: true
-        tags: [detourpilot, k3s]
+    - name: Set data file permissions
+      become: true
+      ansible.builtin.file:
+        path: "{{ detourpilot_data_dir }}/{{ item }}"
+        mode: "0644"
+      loop:
+        - trips.json
+        - geocode.json
+        - ranking.json
+        - places.json
+      tags: [detourpilot, k3s]
 
-      - name: Create GitLab registry pull secret
-        become: true
-        become_user: "{{ server_main_user }}"
-        ansible.builtin.command:
-            cmd: >
-                kubectl -n detourpilot create secret docker-registry gitlab-registry
-                --docker-server=registry.gitlab.com
-                --docker-username="{{ gitlab_registry_username }}"
-                --docker-password="{{ gitlab_registry_password }}"
-                --dry-run=client -o yaml | kubectl apply -f -
-        environment:
-            KUBECONFIG: "{{ home_dir }}/.kube/config"
-        changed_when: true
-        no_log: true
-        tags: [detourpilot, k3s]
+    # DetourPilot — the image is pulled from GitLab Container Registry
+    # (registry.gitlab.com/detourpilot/back-end:latest).
+    # The deployment spec references that image; deploy.sh handles rollout.
+    - name: Apply k8s manifests (kubectl apply -k)
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.command:
+        cmd: kubectl apply -k .
+        chdir: "{{ playbook_dir }}"
+      environment:
+        KUBECONFIG: "{{ home_dir }}/.kube/config"
+      changed_when: true
+      tags: [detourpilot, k3s]
 
-      # TLS via certbot (nginx plugin) + renew
-      - name: Issue cert for {{ jelly_domain }}
-        become: true
-        ansible.builtin.command:
-            argv:
-                - certbot
-                - --nginx
-                - -d
-                - "{{ jelly_domain }}"
-                - --non-interactive
-                - --agree-tos
-                - --email
-                - "{{ certbot_email }}"
-                - --redirect
-        args:
-            creates: "/etc/letsencrypt/live/{{ jelly_domain }}/fullchain.pem"
-        tags: [tls]
+    - name: Create GitLab registry pull secret
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.command:
+        cmd: >
+          kubectl -n detourpilot create secret docker-registry gitlab-registry
+          --docker-server=registry.gitlab.com
+          --docker-username="{{ gitlab_registry_username }}"
+          --docker-password="{{ gitlab_registry_password }}"
+          --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: "{{ home_dir }}/.kube/config"
+      changed_when: true
+      no_log: true
+      tags: [detourpilot, k3s]
 
-      - name: Issue cert for {{ immich_domain }}
-        become: true
-        ansible.builtin.command:
-            argv:
-                - certbot
-                - --nginx
-                - -d
-                - "{{ immich_domain }}"
-                - --non-interactive
-                - --agree-tos
-                - --email
-                - "{{ certbot_email }}"
-                - --redirect
-        args:
-            creates: "/etc/letsencrypt/live/{{ immich_domain }}/fullchain.pem"
-        tags: [tls]
+    # TLS via certbot (nginx plugin) + renew
+    - name: Issue cert for {{ jelly_domain }}
+      become: true
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - --nginx
+          - -d
+          - "{{ jelly_domain }}"
+          - --non-interactive
+          - --agree-tos
+          - --email
+          - "{{ certbot_email }}"
+          - --redirect
+      args:
+        creates: "/etc/letsencrypt/live/{{ jelly_domain }}/fullchain.pem"
+      tags: [tls]
 
-      - name: Issue cert for {{ aichat_domain }}
-        become: true
-        ansible.builtin.command:
-            argv:
-                - certbot
-                - --nginx
-                - -d
-                - "{{ aichat_domain }}"
-                - --non-interactive
-                - --agree-tos
-                - --email
-                - "{{ certbot_email }}"
-                - --redirect
-        args:
-            creates: "/etc/letsencrypt/live/{{ aichat_domain }}/fullchain.pem"
-        tags: [tls]
+    - name: Issue cert for {{ immich_domain }}
+      become: true
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - --nginx
+          - -d
+          - "{{ immich_domain }}"
+          - --non-interactive
+          - --agree-tos
+          - --email
+          - "{{ certbot_email }}"
+          - --redirect
+      args:
+        creates: "/etc/letsencrypt/live/{{ immich_domain }}/fullchain.pem"
+      tags: [tls]
 
-      - name: Issue cert for {{ detourpilot_api_domain }}
-        become: true
-        ansible.builtin.command:
-            argv:
-                - certbot
-                - --nginx
-                - -d
-                - "{{ detourpilot_api_domain }}"
-                - --non-interactive
-                - --agree-tos
-                - --email
-                - "{{ certbot_email }}"
-                - --redirect
-        args:
-            creates: "/etc/letsencrypt/live/{{ detourpilot_api_domain }}/fullchain.pem"
-        tags: [tls]
+    - name: Issue cert for {{ aichat_domain }}
+      become: true
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - --nginx
+          - -d
+          - "{{ aichat_domain }}"
+          - --non-interactive
+          - --agree-tos
+          - --email
+          - "{{ certbot_email }}"
+          - --redirect
+      args:
+        creates: "/etc/letsencrypt/live/{{ aichat_domain }}/fullchain.pem"
+      tags: [tls]
 
-      - name: Restore SELinux contexts for certbot paths
-        become: true
-        ansible.builtin.command: restorecon -Rv /etc/letsencrypt /var/www/certbot
-        changed_when: false
-        when:
-            - ansible_facts['selinux'] is defined
-            - ansible_facts['selinux']['status'] == "enabled"
-        tags: [tls, selinux]
+    - name: Issue cert for {{ detourpilot_api_domain }}
+      become: true
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - --nginx
+          - -d
+          - "{{ detourpilot_api_domain }}"
+          - --non-interactive
+          - --agree-tos
+          - --email
+          - "{{ certbot_email }}"
+          - --redirect
+      args:
+        creates: "/etc/letsencrypt/live/{{ detourpilot_api_domain }}/fullchain.pem"
+      tags: [tls]
 
-      - name: Restart nginx after TLS issuance
-        become: true
-        ansible.builtin.service:
-            name: nginx
-            state: restarted
-        tags: [nginx, tls]
+    - name: Restore SELinux contexts for certbot paths
+      become: true
+      ansible.builtin.command: restorecon -Rv /etc/letsencrypt /var/www/certbot
+      changed_when: false
+      when:
+        - ansible_facts['selinux'] is defined
+        - ansible_facts['selinux']['status'] == "enabled"
+      tags: [tls, selinux]
 
-      - name: Install certbot renew systemd service
-        become: true
-        ansible.builtin.copy:
-            dest: /etc/systemd/system/certbot-renew.service
-            mode: "0644"
-            content: |
-                [Unit]
-                Description=Certbot renew
-                After=network-online.target
+    - name: Restart nginx after TLS issuance
+      become: true
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
+      tags: [nginx, tls]
 
-                [Service]
-                Type=oneshot
-                ExecStart=/usr/bin/certbot renew --quiet --deploy-hook "systemctl reload nginx"
-        tags: [tls]
+    - name: Install certbot renew systemd service
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/certbot-renew.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Certbot renew
+          After=network-online.target
 
-      - name: Install certbot renew systemd timer
-        become: true
-        ansible.builtin.copy:
-            dest: /etc/systemd/system/certbot-renew.timer
-            mode: "0644"
-            content: |
-                [Unit]
-                Description=Twice-daily certbot renew
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/certbot renew --quiet --deploy-hook "systemctl reload nginx"
+      tags: [tls]
 
-                [Timer]
-                OnCalendar=*-*-* 03,15:00:00
-                RandomizedDelaySec=1800
-                Persistent=true
+    - name: Install certbot renew systemd timer
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/certbot-renew.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Twice-daily certbot renew
 
-                [Install]
-                WantedBy=timers.target
-        tags: [tls]
+          [Timer]
+          OnCalendar=*-*-* 03,15:00:00
+          RandomizedDelaySec=1800
+          Persistent=true
 
-      - name: Enable and start certbot-renew.timer
-        become: true
-        ansible.builtin.systemd:
-            name: certbot-renew.timer
-            state: started
-            enabled: true
-            daemon_reload: true
-        tags: [tls]
+          [Install]
+          WantedBy=timers.target
+      tags: [tls]
 
-      # Setup Open WebUI
-      - name: Ensure ~/apps/aichat exists
-        become: true
-        ansible.builtin.file:
-            path: "{{ aichat_dir }}"
-            state: directory
-            owner: "{{ server_main_user }}"
-            group: "{{ server_main_user }}"
-            mode: "0755"
-        tags: [aichat, docker]
+    - name: Enable and start certbot-renew.timer
+      become: true
+      ansible.builtin.systemd:
+        name: certbot-renew.timer
+        state: started
+        enabled: true
+        daemon_reload: true
+      tags: [tls]
 
-      - name: Copy docker compose for AI chat
-        become: true
-        ansible.builtin.template:
-            src: open-webui-docker-compose.yml
-            dest: "{{ aichat_compose_path }}"
-            owner: "{{ server_main_user }}"
-            group: "{{ server_main_user }}"
-            mode: "0644"
-        tags: [aichat, docker]
+    # Setup Open WebUI
+    - name: Ensure ~/apps/aichat exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ aichat_dir }}"
+        state: directory
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0755"
+      tags: [aichat, docker]
 
-      - name: Replace OpenAI API key placeholder in compose file
-        become: true
-        ansible.builtin.replace:
-            path: "{{ aichat_compose_path }}"
-            regexp: "%openai_api_key%"
-            replace: "{{ openai_api_key }}"
-        no_log: true
-        tags: [aichat, docker]
+    - name: Copy docker compose for AI chat
+      become: true
+      ansible.builtin.template:
+        src: open-webui-docker-compose.yml
+        dest: "{{ aichat_compose_path }}"
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0644"
+      tags: [aichat, docker]
 
-      - name: Replace Z.AI API key placeholder in compose file
-        become: true
-        ansible.builtin.replace:
-            path: "{{ aichat_compose_path }}"
-            regexp: "%z_ai_api_key%"
-            replace: "{{ z_ai_api_key }}"
-        no_log: true
-        tags: [aichat, docker]
+    - name: Replace OpenAI API key placeholder in compose file
+      become: true
+      ansible.builtin.replace:
+        path: "{{ aichat_compose_path }}"
+        regexp: "%openai_api_key%"
+        replace: "{{ openai_api_key }}"
+      no_log: true
+      tags: [aichat, docker]
 
-      - name: Replace Mistral API key placeholder in compose file
-        become: true
-        ansible.builtin.replace:
-            path: "{{ aichat_compose_path }}"
-            regexp: "%mistral_api_key%"
-            replace: "{{ mistral_api_key }}"
-        no_log: true
-        tags: [aichat, docker]
+    - name: Replace Z.AI API key placeholder in compose file
+      become: true
+      ansible.builtin.replace:
+        path: "{{ aichat_compose_path }}"
+        regexp: "%z_ai_api_key%"
+        replace: "{{ z_ai_api_key }}"
+      no_log: true
+      tags: [aichat, docker]
 
-      - name: Replace OpenRouter API key placeholder in compose file
-        become: true
-        ansible.builtin.replace:
-            path: "{{ aichat_compose_path }}"
-            regexp: "%openrouter_api_key%"
-            replace: "{{ openrouter_api_key }}"
-        no_log: true
-        tags: [aichat, docker]
+    - name: Replace Mistral API key placeholder in compose file
+      become: true
+      ansible.builtin.replace:
+        path: "{{ aichat_compose_path }}"
+        regexp: "%mistral_api_key%"
+        replace: "{{ mistral_api_key }}"
+      no_log: true
+      tags: [aichat, docker]
 
-      - name: Replace Brave API key placeholder in compose file
-        become: true
-        ansible.builtin.replace:
-            path: "{{ aichat_compose_path }}"
-            regexp: "%brave_api_key%"
-            replace: "{{ brave_api_key }}"
-        no_log: true
-        tags: [aichat, docker]
+    - name: Replace OpenRouter API key placeholder in compose file
+      become: true
+      ansible.builtin.replace:
+        path: "{{ aichat_compose_path }}"
+        regexp: "%openrouter_api_key%"
+        replace: "{{ openrouter_api_key }}"
+      no_log: true
+      tags: [aichat, docker]
 
-      - name: Replace domain placeholder in compose file
-        become: true
-        ansible.builtin.replace:
-            path: "{{ aichat_compose_path }}"
-            regexp: "%aichat_domain%"
-            replace: "{{ aichat_domain }}"
-        no_log: true
-        tags: [aichat, docker]
+    - name: Replace Brave API key placeholder in compose file
+      become: true
+      ansible.builtin.replace:
+        path: "{{ aichat_compose_path }}"
+        regexp: "%brave_api_key%"
+        replace: "{{ brave_api_key }}"
+      no_log: true
+      tags: [aichat, docker]
 
-      - name: Copy settings config for searxng
-        become: true
-        ansible.builtin.template:
-            src: searxng_settings.yml
-            dest: "{{ searxng_settings_path }}"
-            owner: "{{ server_main_user }}"
-            group: "{{ server_main_user }}"
-            mode: "0644"
-        tags: [aichat, docker]
+    - name: Replace domain placeholder in compose file
+      become: true
+      ansible.builtin.replace:
+        path: "{{ aichat_compose_path }}"
+        regexp: "%aichat_domain%"
+        replace: "{{ aichat_domain }}"
+      no_log: true
+      tags: [aichat, docker]
 
-      - name: Bring up AI chat compose
-        become: true
-        become_user: "{{ server_main_user }}"
-        community.docker.docker_compose_v2:
-            project_src: "{{ aichat_dir }}"
-            state: present
-        tags: [aichat, docker]
+    - name: Copy settings config for searxng
+      become: true
+      ansible.builtin.template:
+        src: searxng_settings.yml
+        dest: "{{ searxng_settings_path }}"
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0644"
+      tags: [aichat, docker]
 
-      - name: Install Immich
-        become: true
-        become_user: "{{ server_main_user }}"
-        ansible.builtin.shell: |
-            set -euo pipefail
-            curl -fsSL https://raw.githubusercontent.com/immich-app/immich/main/install.sh | bash
-        args:
-            chdir: "{{ home_dir }}"
-        changed_when: false
-        when: immich_install | default(false) | bool
-        tags: [immich]
+    - name: Bring up AI chat compose
+      become: true
+      become_user: "{{ server_main_user }}"
+      community.docker.docker_compose_v2:
+        project_src: "{{ aichat_dir }}"
+        state: present
+      tags: [aichat, docker]
+
+    - name: Install Immich
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsSL https://raw.githubusercontent.com/immich-app/immich/main/install.sh | bash
+      args:
+        chdir: "{{ home_dir }}"
+      changed_when: false
+      when: immich_install | default(false) | bool
+      tags: [immich]
 
   handlers:
-      - name: Reload firewalld
-        ansible.builtin.service:
-            name: firewalld
-            state: reloaded
+    - name: Reload firewalld
+      ansible.builtin.service:
+        name: firewalld
+        state: reloaded
 
-      - name: Reload nginx
-        ansible.builtin.service:
-            name: nginx
-            state: reloaded
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
