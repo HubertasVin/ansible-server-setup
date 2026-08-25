@@ -619,6 +619,17 @@
         mode: "0755"
       tags: [detourpilot, k3s]
 
+    - name: Check if DetourPilot data files already exist
+      ansible.builtin.stat:
+        path: "{{ detourpilot_data_dir }}/{{ item }}"
+      register: detourpilot_preflight
+      loop:
+        - places.json
+        - trips.json
+        - geocode.json
+        - ranking.json
+      tags: [detourpilot, k3s]
+
     - name: Wait for DetourPilot data files on server
       ansible.builtin.pause:
         prompt: |
@@ -628,6 +639,9 @@
             - geocode.json
             - ranking.json
           scp places.json trips.json geocode.json ranking.json {{ server_main_user }}@<host>:{{ detourpilot_data_dir }}/
+          Boxes VM (no port forwarding)? Pull from your host instead (run sshd on host):
+          scp <host-user>@10.0.2.2:/path/to/places.json ... {{ detourpilot_data_dir }}/
+      when: detourpilot_preflight.results | rejectattr('stat.exists') | list | length > 0
       tags: [detourpilot, k3s]
 
     - name: Check DetourPilot data files were copied
@@ -643,7 +657,7 @@
 
     - name: Fail if any data file is missing
       ansible.builtin.assert:
-        that: detourpilot_data.results | map(attribute='stat.exists') | list | all
+        that: detourpilot_data.results | rejectattr('stat.exists') | list | length == 0
         fail_msg: "Missing data files in {{ detourpilot_data_dir }}/ - copy over files places.json, trips.json, geocode.json, ranking.json and re-run"
       tags: [detourpilot, k3s]
 
