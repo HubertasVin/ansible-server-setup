@@ -609,29 +609,63 @@
             remote_src: true
         tags: [k3s]
 
-      - name: Ensure hostPath data dir exists
+      - name: Ensure hostPath data dir exists (user-writable for scp)
         become: true
         ansible.builtin.file:
             path: "{{ detourpilot_data_dir }}"
             state: directory
-            owner: "65532"
-            group: "65532"
+            owner: "{{ server_main_user }}"
+            group: "{{ server_main_user }}"
             mode: "0755"
         tags: [detourpilot, k3s]
 
-      - name: Seed JSON data files
-        become: true
-        ansible.builtin.copy:
-            src: "files/data/{{ item }}"
-            dest: "{{ detourpilot_data_dir }}/{{ item }}"
-            owner: "65532"
-            group: "65532"
-            mode: "0644"
-            force: false
+      - name: Wait for DetourPilot data files on server
+        ansible.builtin.pause:
+            prompt: |
+                Copy the DetourPilot data files to {{ detourpilot_data_dir }}/ to the server:
+                  - places.json
+                  - trips.json
+                  - geocode.json
+                  - ranking.json
+                scp places.json trips.json geocode.json ranking.json {{ server_main_user }}@<host>:{{ detourpilot_data_dir }}/
+        tags: [detourpilot, k3s]
+
+      - name: Check DetourPilot data files were copied
+        ansible.builtin.stat:
+            path: "{{ detourpilot_data_dir }}/{{ item }}"
+        register: detourpilot_data
         loop:
-            - ranking.json
             - places.json
             - trips.json
+            - geocode.json
+            - ranking.json
+        tags: [detourpilot, k3s]
+
+      - name: Fail if any data file is missing
+        ansible.builtin.assert:
+            that: detourpilot_data.results | map(attribute='stat.exists') | list | all
+            fail_msg: "Missing data files in {{ detourpilot_data_dir }}/ - copy over files places.json, trips.json, geocode.json, ranking.json and re-run"
+        tags: [detourpilot, k3s]
+
+      - name: Fix ownership of data dir for app (uid 65532)
+        become: true
+        ansible.builtin.file:
+            path: "{{ detourpilot_data_dir }}"
+            recurse: true
+            owner: "65532"
+            group: "65532"
+        tags: [detourpilot, k3s]
+
+      - name: Set data file permissions
+        become: true
+        ansible.builtin.file:
+            path: "{{ detourpilot_data_dir }}/{{ item }}"
+            mode: "0644"
+        loop:
+            - trips.json
+            - geocode.json
+            - ranking.json
+            - places.json
         tags: [detourpilot, k3s]
 
       # DetourPilot — the image is pulled from GitLab Container Registry
