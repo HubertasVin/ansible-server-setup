@@ -670,16 +670,11 @@
       become: true
       become_user: "{{ server_main_user }}"
       ansible.builtin.git:
-        repo: "{{ detourpilot_deployment_repo }}"
+        repo: "{{ detourpilot_deployment_repo | regex_replace('^https://', 'https://oauth2:' + gitlab_deployment_token + '@') }}"
         dest: "{{ detourpilot_k8s_dir }}"
         version: main
         update: true
         force: true
-      # Auth via env keeps the token out of .git/config
-      environment:
-        GIT_CONFIG_COUNT: "1"
-        GIT_CONFIG_KEY_0: http.extraheader
-        GIT_CONFIG_VALUE_0: "AUTHORIZATION: Basic {{ ('oauth2:' + gitlab_deployment_token) | b64encode }}"
       no_log: true
       tags: [detourpilot, k3s]
 
