@@ -137,6 +137,7 @@
           - nginx
           - certbot
           - python3-certbot-nginx
+          - python3-pyparsing
           - rclone
           - zlib-devel
         state: present
