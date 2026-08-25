@@ -48,7 +48,6 @@
         ─── GitHub fine-grained token for obsidian-sync ────────────────────────
         Generate at: https://github.com/settings/personal-access-tokens
         → Generate new token
-        Name: ansible-obsidian-sync
         Repository access: Only select repositories
         Permissions → Repository permissions → Contents: Read and write
         ─────────────────────────────────────────────────────────────────────────
@@ -59,12 +58,21 @@
         ─── GitLab Container Registry deploy token ─────────────────────────────
         Generate at: https://gitlab.com/detourpilot/back-end/-/settings/repository
         → Deploy tokens → New deploy token
-        Scope: read_registry   (nothing else needed)
+        Scope: read_registry
         ─────────────────────────────────────────────────────────────────────────
       private: false
 
     - name: gitlab_registry_password
       prompt: "Enter the deploy-token password"
+      private: true
+
+    - name: gitlab_deployment_token
+      prompt: |
+        ─── GitLab token to clone detourpilot/deployment ──────────────────────
+        Generate at: https://gitlab.com/-/user_settings/personal_access_tokens
+        → Add new token
+        Scope: read_repository
+        ───────────────────────────────────────────────────────────────────────
       private: true
 
   vars:
@@ -87,12 +95,14 @@
     searxng_settings_path: "{{ aichat_dir }}/settings.yml"
 
     # k3s / DetourPilot
-    detourpilot_data_dir: "/var/lib/detourpilot/data"
+    detourpilot_deployment_repo: "https://gitlab.com/detourpilot/deployment.git"
+    detourpilot_k8s_dir: "{{ home_dir }}/apps/detourpilot/k8s"
+    detourpilot_data_dir: "{{ home_dir }}/apps/detourpilot/data"
     detourpilot_data_files:
-        - places.json
-        - trails.json
-        - geocode.json
-        - ranking.json
+      - geocode.json
+      - places.json
+      - ranking.json
+      - trails.json
 
   pre_tasks:
     - name: Enable RPM Fusion repos (Fedora)
@@ -645,51 +655,67 @@
         fail_msg: "Missing data files in {{ detourpilot_data_dir }}/ - copy over files {{ detourpilot_data_files | join(', ') }} and re-run"
       tags: [detourpilot, k3s]
 
-    - name: Fix ownership of data dir for app (uid 65532)
+    - name: Ensure deployment clone parent dir exists
       become: true
       ansible.builtin.file:
-        path: "{{ detourpilot_data_dir }}"
-        recurse: true
-        owner: "65532"
-        group: "65532"
+        path: "{{ detourpilot_k8s_dir | dirname }}"
+        state: directory
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0755"
       tags: [detourpilot, k3s]
 
-    - name: Set data file permissions
-      become: true
-      ansible.builtin.file:
-        path: "{{ detourpilot_data_dir }}/{{ item }}"
-        mode: "0644"
-      loop: "{{ detourpilot_data_files }}"
-      tags: [detourpilot, k3s]
-
-    # DetourPilot — the image is pulled from GitLab Container Registry
-    # (registry.gitlab.com/detourpilot/back-end:latest).
-    # The deployment spec references that image; deploy.sh handles rollout.
-    - name: Apply k8s manifests (kubectl apply -k)
+    - name: Clone DetourPilot deployment repo (manifests)
       become: true
       become_user: "{{ server_main_user }}"
-      ansible.builtin.command:
-        cmd: kubectl apply -k .
-        chdir: "{{ playbook_dir }}"
+      ansible.builtin.git:
+        repo: "{{ detourpilot_deployment_repo }}"
+        dest: "{{ detourpilot_k8s_dir }}"
+        version: main
+        update: true
+        force: true
+      # Auth via env keeps the token out of .git/config
       environment:
-        KUBECONFIG: "{{ home_dir }}/.kube/config"
-      changed_when: true
-      tags: [detourpilot, k3s]
-
-    - name: Create GitLab registry pull secret
-      become: true
-      become_user: "{{ server_main_user }}"
-      ansible.builtin.command:
-        cmd: >
-          kubectl -n detourpilot create secret docker-registry gitlab-registry
-          --docker-server=registry.gitlab.com
-          --docker-username="{{ gitlab_registry_username }}"
-          --docker-password="{{ gitlab_registry_password }}"
-          --dry-run=client -o yaml | kubectl apply -f -
-      environment:
-        KUBECONFIG: "{{ home_dir }}/.kube/config"
-      changed_when: true
+        GIT_CONFIG_COUNT: "1"
+        GIT_CONFIG_KEY_0: http.extraheader
+        GIT_CONFIG_VALUE_0: "AUTHORIZATION: Basic {{ ('oauth2:' + gitlab_deployment_token) | b64encode }}"
       no_log: true
+      tags: [detourpilot, k3s]
+
+    - name: Point seed-data Job hostPath at this server's user
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.replace:
+        path: "{{ detourpilot_k8s_dir }}/seed-data-job.yaml"
+        regexp: "/home/hubserv/apps/detourpilot/data"
+        replace: "{{ detourpilot_data_dir }}"
+      tags: [detourpilot, k3s]
+
+    - name: Write .env for deploy.sh (registry credentials)
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.copy:
+        dest: "{{ detourpilot_k8s_dir }}/.env"
+        content: |
+          GITLAB_REGISTRY_USERNAME={{ gitlab_registry_username }}
+          GITLAB_REGISTRY_PASSWORD={{ gitlab_registry_password }}
+          GITLAB_REGISTRY_EMAIL={{ certbot_email }}
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0600"
+      no_log: true
+      tags: [detourpilot, k3s]
+
+    - name: Deploy DetourPilot (deploy.sh)
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.command:
+        cmd: ./deploy.sh
+        chdir: "{{ detourpilot_k8s_dir }}"
+      environment:
+        KUBECONFIG: "{{ home_dir }}/.kube/config"
+        TIMEOUT: "300"
+      changed_when: true
       tags: [detourpilot, k3s]
 
     # TLS via certbot (nginx plugin) + renew
