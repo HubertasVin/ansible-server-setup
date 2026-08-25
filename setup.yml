@@ -709,6 +709,18 @@
       no_log: true
       tags: [detourpilot, k3s]
 
+    - name: Check if DetourPilot back-end is already deployed
+      become: true
+      become_user: "{{ server_main_user }}"
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s kubectl get deployment back-end -n detourpilot -o jsonpath='{.status.readyReplicas}'
+      environment:
+        KUBECONFIG: "{{ home_dir }}/.kube/config"
+      register: detourpilot_deployed
+      failed_when: false
+      changed_when: false
+      tags: [detourpilot, k3s]
+
     - name: Deploy DetourPilot (deploy.sh)
       become: true
       become_user: "{{ server_main_user }}"
@@ -717,12 +729,12 @@
         chdir: "{{ detourpilot_k8s_dir }}"
       environment:
         KUBECONFIG: "{{ home_dir }}/.kube/config"
-        TIMEOUT: "300"
         GITLAB_REGISTRY_USERNAME: "{{ gitlab_registry_username }}"
         GITLAB_REGISTRY_PASSWORD: "{{ gitlab_registry_password }}"
         GITLAB_REGISTRY_EMAIL: "{{ certbot_email }}"
       changed_when: true
       no_log: false
+      when: detourpilot_deployed.stdout | default('0') | int == 0
       tags: [detourpilot, k3s]
 
     # TLS via certbot (nginx plugin) + renew
