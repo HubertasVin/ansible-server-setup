@@ -71,7 +71,8 @@
         ─── GitLab token to clone detourpilot/deployment ──────────────────────
         Generate at: https://gitlab.com/-/user_settings/personal_access_tokens
         → Add new token
-        Scope: read_repository
+        Resource access: Code
+        Group and project: Code - Download
         ───────────────────────────────────────────────────────────────────────
       private: true
 
