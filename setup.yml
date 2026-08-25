@@ -711,7 +711,11 @@
       environment:
         KUBECONFIG: "{{ home_dir }}/.kube/config"
         TIMEOUT: "300"
+        GITLAB_REGISTRY_USERNAME: "{{ gitlab_registry_username }}"
+        GITLAB_REGISTRY_PASSWORD: "{{ gitlab_registry_password }}"
+        GITLAB_REGISTRY_EMAIL: "{{ certbot_email }}"
       changed_when: true
+      no_log: true
       tags: [detourpilot, k3s]
 
     # TLS via certbot (nginx plugin) + renew
