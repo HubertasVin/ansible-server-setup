@@ -106,6 +106,23 @@
       - trails.json
 
   pre_tasks:
+    - name: Ensure main user exists
+      become: true
+      ansible.builtin.user:
+        name: "{{ server_main_user }}"
+        state: present
+        home: "{{ home_dir }}"
+        shell: /bin/bash
+      tags: [users]
+
+    - name: Set password for main user
+      become: true
+      ansible.builtin.user:
+        name: "{{ server_main_user }}"
+        password: "{{ server_main_password | password_hash('sha512') }}"
+        update_password: always
+      tags: [users]
+
     - name: Enable RPM Fusion repos (Fedora)
       become: true
       ansible.builtin.dnf:
@@ -208,23 +225,6 @@
 
   tasks:
     # Users & permissions
-    - name: Ensure main user exists
-      become: true
-      ansible.builtin.user:
-        name: "{{ server_main_user }}"
-        state: present
-        home: "{{ home_dir }}"
-        shell: /bin/bash
-      tags: [users]
-
-    - name: Set password for main user
-      become: true
-      ansible.builtin.user:
-        name: "{{ server_main_user }}"
-        password: "{{ server_main_password | password_hash('sha512') }}"
-        update_password: always
-      tags: [users]
-
     - name: Allow passwordless sudo for user {{ server_main_user }}
       become: true
       ansible.builtin.copy:
