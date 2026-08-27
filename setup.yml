@@ -168,6 +168,7 @@
           - python3-docker
           - borgbackup
           - cronie
+          - firewalld
           - git
           - nginx
           - certbot
@@ -200,19 +201,6 @@
       when: not (testing_mode | default(false) | bool)
       tags: [rclone]
 
-    - name: Enable/start services (docker, nginx, crond)
-      become: true
-      become_user: root
-      ansible.builtin.service:
-        name: "{{ item }}"
-        state: started
-        enabled: true
-      loop:
-        - docker
-        - nginx
-        - crond
-      tags: [services]
-
     - name: Install k3s (lightweight Kubernetes)
       become: true
       become_user: root
@@ -235,14 +223,20 @@
       when: ansible_facts['os_family'] == "RedHat"
       tags: [jellyfin]
 
-    - name: Enable and start Jellyfin
+    - name: Enable/start services (docker, nginx, crond, firewalld, jellyfin)
       become: true
       become_user: root
       ansible.builtin.service:
-        name: jellyfin
+        name: "{{ item }}"
         state: started
         enabled: true
-      tags: [jellyfin]
+      loop:
+        - docker
+        - nginx
+        - crond
+        - firewalld
+        - jellyfin
+      tags: [services]
 
   tasks:
     # Users & permissions
@@ -397,15 +391,6 @@
       tags: [borg]
 
     # Firewall & SELinux
-    - name: Ensure firewalld is enabled and running
-      become: true
-      become_user: root
-      ansible.builtin.service:
-        name: firewalld
-        state: started
-        enabled: true
-      tags: [firewall]
-
     - name: Open HTTP/HTTPS
       become: true
       become_user: root
