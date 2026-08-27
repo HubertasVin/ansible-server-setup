@@ -1153,9 +1153,9 @@
         replace: "{{ item.replace }}"
       loop:
         - regexp: '\$\{UPLOAD_LOCATION\}:/data$'
-          replace: '${UPLOAD_LOCATION}:/data:z'
+          replace: "${UPLOAD_LOCATION}:/data:z"
         - regexp: '\$\{DB_DATA_LOCATION\}:/var/lib/postgresql/data$'
-          replace: '${DB_DATA_LOCATION}:/var/lib/postgresql/data:z'
+          replace: "${DB_DATA_LOCATION}:/var/lib/postgresql/data:z"
       tags: [immich]
 
     - name: Bring up Immich compose
