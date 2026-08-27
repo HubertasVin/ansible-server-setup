@@ -79,8 +79,8 @@
 
   vars:
     home_dir: "/home/{{ server_main_user }}"
-    uid: "1000"
-    gid: "1000"
+    uid: "{{ ansible_facts.getent_passwd[server_main_user][1] }}"
+    gid: "{{ ansible_facts.getent_passwd[server_main_user][2] }}"
 
     docker_image: "dgraziotin/nginx-webdav-nononsense"
     dav_dir: "{{ home_dir }}/dav_data"
@@ -131,6 +131,12 @@
         password: "{{ server_main_password | password_hash('sha512') }}"
         update_password: always
       tags: [users]
+
+    - name: Look up main user uid/gid
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ server_main_user }}"
+      tags: always
 
     - name: Enable RPM Fusion repos (Fedora)
       become: true
@@ -288,6 +294,8 @@
 
     # WebDAV container
     - name: Create WebDAV data dir
+      become: true
+      become_user: root
       ansible.builtin.file:
         path: "{{ dav_dir }}"
         state: directory
