@@ -167,6 +167,7 @@
           - docker-buildx
           - python3-docker
           - borgbackup
+          - cronie
           - git
           - nginx
           - certbot
@@ -199,7 +200,7 @@
       when: not (testing_mode | default(false) | bool)
       tags: [rclone]
 
-    - name: Enable/start Docker & Nginx
+    - name: Enable/start services (docker, nginx, crond)
       become: true
       become_user: root
       ansible.builtin.service:
@@ -209,6 +210,7 @@
       loop:
         - docker
         - nginx
+        - crond
       tags: [services]
 
     - name: Install k3s (lightweight Kubernetes)
