@@ -92,6 +92,9 @@
     borg_backup_dir: "/home/{{ borg_user }}/backups"
     borg_repo_path: "{{ borg_backup_dir }}"
 
+    # Jellyfin media library
+    media_dir: /srv/media
+
     aichat_dir: "{{ home_dir }}/apps/aichat"
     aichat_compose_path: "{{ aichat_dir }}/docker-compose.yml"
     searxng_settings_path: "{{ aichat_dir }}/settings.yml"
@@ -169,6 +172,7 @@
           - borgbackup
           - cronie
           - firewalld
+          - policycoreutils-python-utils
           - git
           - nginx
           - certbot
@@ -301,6 +305,84 @@
         groups: docker
         append: true
       tags: [users, docker]
+
+    # Jellyfin media library (/srv/media, shared with the jellyfin service user)
+    - name: Ensure jellyfin group exists
+      become: true
+      become_user: root
+      ansible.builtin.group:
+        name: jellyfin
+        state: present
+      tags: [jellyfin, media]
+
+    - name: Create media directories
+      become: true
+      become_user: root
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ server_main_user }}"
+        group: jellyfin
+        mode: "2775"
+      loop:
+        - "{{ media_dir }}"
+        - "{{ media_dir }}/movies"
+        - "{{ media_dir }}/series"
+      tags: [jellyfin, media]
+
+    - name: Add user to jellyfin group - {{ server_main_user }}
+      become: true
+      become_user: root
+      ansible.builtin.user:
+        name: "{{ server_main_user }}"
+        groups: jellyfin
+        append: true
+      tags: [users, jellyfin, media]
+
+    # - name: List SELinux fcontexts
+    #   become: true
+    #   become_user: root
+    #   ansible.builtin.command: semanage fcontext -l
+    #   register: selinux_fcontexts
+    #   changed_when: false
+    #   when:
+    #     - ansible_facts['selinux'] is defined
+    #     - ansible_facts['selinux']['status'] == "enabled"
+    #   tags: [jellyfin, media, selinux]
+
+    # # public_content_t = shared read-only served content; only enforced when
+    # # jellyfin runs confined (jellyfin-selinux), harmless for unconfined builds
+    # - name: Label media dir for service access (SELinux)
+    #   become: true
+    #   become_user: root
+    #   ansible.builtin.command:
+    #     argv:
+    #       - semanage
+    #       - fcontext
+    #       - -a
+    #       - -t
+    #       - public_content_t
+    #       - "{{ media_dir }}(/.*)?"
+    #   changed_when: true
+    #   when:
+    #     - ansible_facts['selinux'] is defined
+    #     - ansible_facts['selinux']['status'] == "enabled"
+    #     - (media_dir ~ '(/.*)?') not in selinux_fcontexts.stdout
+    #   tags: [jellyfin, media, selinux]
+
+    # - name: Apply SELinux context to media dir
+    #   become: true
+    #   become_user: root
+    #   ansible.builtin.command:
+    #     argv:
+    #       - restorecon
+    #       - -R
+    #       - "{{ media_dir }}"
+    #   changed_when: false
+    #   when:
+    #     - ansible_facts['selinux'] is defined
+    #     - ansible_facts['selinux']['status'] == "enabled"
+    #   tags: [jellyfin, media, selinux]
 
     # WebDAV container
     - name: Create WebDAV data dir
