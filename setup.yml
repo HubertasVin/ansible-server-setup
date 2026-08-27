@@ -495,6 +495,25 @@
       tags: [nginx]
 
     # Nginx reverse proxies (HTTP)
+    # NOTE: certbot --nginx rewrites these files to add the 443 server block.
+    # Detect existing TLS blocks on the remote host so re-runs never clobber them.
+    - name: Check which vhosts already have TLS (certbot-managed)
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -l
+          - listen 443
+          - /etc/nginx/conf.d/{{ jelly_domain }}.conf
+          - /etc/nginx/conf.d/{{ immich_domain }}.conf
+          - /etc/nginx/conf.d/{{ aichat_domain }}.conf
+          - /etc/nginx/conf.d/{{ detourpilot_api_domain }}.conf
+      register: vhost_tls_files
+      changed_when: false
+      failed_when: vhost_tls_files.rc not in [0, 1, 2]
+      tags: [nginx]
+
     - name: Proxy for {{ jelly_domain }}
       become: true
       become_user: root
@@ -519,6 +538,7 @@
               }
           }
       notify: Reload nginx
+      when: ('/etc/nginx/conf.d/' ~ jelly_domain ~ '.conf') not in vhost_tls_files.stdout_lines
       tags: [nginx]
 
     - name: Proxy for {{ immich_domain }}
@@ -557,6 +577,7 @@
               }
           }
       notify: Reload nginx
+      when: ('/etc/nginx/conf.d/' ~ immich_domain ~ '.conf') not in vhost_tls_files.stdout_lines
       tags: [nginx]
 
     - name: Proxy for {{ aichat_domain }}
@@ -589,6 +610,7 @@
               }
           }
       notify: Reload nginx
+      when: ('/etc/nginx/conf.d/' ~ aichat_domain ~ '.conf') not in vhost_tls_files.stdout_lines
       tags: [nginx]
 
     - name: Proxy for k3s ingress ({{ detourpilot_api_domain }})
@@ -618,6 +640,7 @@
               }
           }
       notify: Reload nginx
+      when: ('/etc/nginx/conf.d/' ~ detourpilot_api_domain ~ '.conf') not in vhost_tls_files.stdout_lines
       tags: [nginx]
 
     - name: Test nginx config
@@ -793,8 +816,10 @@
           - --email
           - "{{ certbot_email }}"
           - --redirect
-      args:
-        creates: "/etc/letsencrypt/live/{{ jelly_domain }}/fullchain.pem"
+      register: certbot_jelly
+      # Idempotent: certbot exits 0 and changes nothing when a renewal conf
+      # already exists for the domain (skipped only in testing mode).
+      changed_when: certbot_jelly.stdout is search('Certificate not yet due for renewal') | ternary(false, certbot_jelly.rc == 0)
       when: not (testing_mode | default(false) | bool)
       tags: [tls]
 
@@ -812,8 +837,8 @@
           - --email
           - "{{ certbot_email }}"
           - --redirect
-      args:
-        creates: "/etc/letsencrypt/live/{{ immich_domain }}/fullchain.pem"
+      register: certbot_immich
+      changed_when: certbot_immich.stdout is search('Certificate not yet due for renewal') | ternary(false, certbot_immich.rc == 0)
       when: not (testing_mode | default(false) | bool)
       tags: [tls]
 
@@ -831,8 +856,8 @@
           - --email
           - "{{ certbot_email }}"
           - --redirect
-      args:
-        creates: "/etc/letsencrypt/live/{{ aichat_domain }}/fullchain.pem"
+      register: certbot_aichat
+      changed_when: certbot_aichat.stdout is search('Certificate not yet due for renewal') | ternary(false, certbot_aichat.rc == 0)
       when: not (testing_mode | default(false) | bool)
       tags: [tls]
 
@@ -850,8 +875,8 @@
           - --email
           - "{{ certbot_email }}"
           - --redirect
-      args:
-        creates: "/etc/letsencrypt/live/{{ detourpilot_api_domain }}/fullchain.pem"
+      register: certbot_detourpilot
+      changed_when: certbot_detourpilot.stdout is search('Certificate not yet due for renewal') | ternary(false, certbot_detourpilot.rc == 0)
       when: not (testing_mode | default(false) | bool)
       tags: [tls]
 
