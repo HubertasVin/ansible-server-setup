@@ -101,6 +101,8 @@
     aichat_compose_path: "{{ aichat_dir }}/docker-compose.yml"
     searxng_settings_path: "{{ aichat_dir }}/settings.yml"
 
+    immich_dir: "{{ apps_dir }}/immich-app"
+
     # k3s / DetourPilot
     detourpilot_deployment_repo: "https://gitlab.com/detourpilot/deployment.git"
     detourpilot_k8s_dir: "{{ apps_dir }}/detourpilot/k8s"
@@ -1127,8 +1129,8 @@
         state: present
       register: aichat_up
       until: aichat_up is not failed
-      retries: 3
-      delay: 30
+      retries: 5
+      delay: 60
       tags: [aichat, docker]
 
     - name: Install Immich
@@ -1137,7 +1139,11 @@
         curl -fsSL https://raw.githubusercontent.com/immich-app/immich/main/install.sh | bash
       args:
         chdir: "{{ apps_dir }}"
-      changed_when: false
+        creates: "{{ immich_dir }}/docker-compose.yml"
+      register: immich_up
+      until: immich_up is not failed
+      retries: 5
+      delay: 60
       when: immich_install | default(false) | bool
       tags: [immich]
 
