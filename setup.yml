@@ -1016,6 +1016,10 @@
       community.docker.docker_compose_v2:
         project_src: "{{ aichat_dir }}"
         state: present
+      register: aichat_up
+      until: aichat_up is not failed
+      retries: 3
+      delay: 30
       tags: [aichat, docker]
 
     - name: Install Immich
