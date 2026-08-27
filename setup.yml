@@ -201,6 +201,20 @@
       when: not (testing_mode | default(false) | bool)
       tags: [rclone]
 
+    - name: Configure k3s (disable ServiceLB, which captures host ports 80/443)
+      become: true
+      become_user: root
+      ansible.builtin.blockinfile:
+        path: /etc/rancher/k3s/config.yaml
+        create: true
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED - disable servicelb"
+        block: |
+          disable:
+            - servicelb
+      register: k3s_config
+      tags: [k3s]
+
     - name: Install k3s (lightweight Kubernetes)
       become: true
       become_user: root
@@ -750,7 +764,7 @@
       changed_when: false
       tags: [detourpilot, k3s]
 
-    - name: Deploy DetourPilot (deploy.sh)
+    - name: Deploy DetourPilot
       ansible.builtin.command:
         cmd: ./deploy.sh
         chdir: "{{ detourpilot_k8s_dir }}"
