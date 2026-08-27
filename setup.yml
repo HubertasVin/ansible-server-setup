@@ -1,7 +1,8 @@
 - name: Fedora host bootstrap + WebDAV + Reverse proxies deploy
   hosts: all
-  become: false
-  # connection: local
+  become: true
+  become_user: "{{ server_main_user }}"
+  gather_facts: false
   vars_files:
     - "{{ secrets_file | default('secrets.dev.yml') }}"
 
@@ -106,8 +107,15 @@
       - trails.json
 
   pre_tasks:
+    - name: Gather facts as root (main user may not exist yet)
+      become: true
+      become_user: root
+      ansible.builtin.setup:
+      tags: always
+
     - name: Ensure main user exists
       become: true
+      become_user: root
       ansible.builtin.user:
         name: "{{ server_main_user }}"
         state: present
@@ -117,6 +125,7 @@
 
     - name: Set password for main user
       become: true
+      become_user: root
       ansible.builtin.user:
         name: "{{ server_main_user }}"
         password: "{{ server_main_password | password_hash('sha512') }}"
@@ -125,6 +134,7 @@
 
     - name: Enable RPM Fusion repos (Fedora)
       become: true
+      become_user: root
       ansible.builtin.dnf:
         name:
           - "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-{{ ansible_facts['distribution_major_version'] }}.noarch.rpm"
@@ -136,6 +146,7 @@
 
     - name: Install base packages (Fedora)
       become: true
+      become_user: root
       ansible.builtin.dnf:
         name:
           - ca-certificates
@@ -171,8 +182,6 @@
       tags: [rclone]
 
     - name: Configure rclone with fresh 2FA
-      become: true
-      become_user: "{{ server_main_user }}"
       ansible.builtin.shell: |
         rclone config create "ProtonDrive" protondrive \
           username "{{ rclone_protondrive_email }}" \
@@ -186,6 +195,7 @@
 
     - name: Enable/start Docker & Nginx
       become: true
+      become_user: root
       ansible.builtin.service:
         name: "{{ item }}"
         state: started
@@ -197,6 +207,7 @@
 
     - name: Install k3s (lightweight Kubernetes)
       become: true
+      become_user: root
       ansible.builtin.shell: |
         set -o pipefail
         if ! systemctl is-active --quiet k3s; then
@@ -208,6 +219,7 @@
 
     - name: Install Jellyfin meta-package (server+web)
       become: true
+      become_user: root
       ansible.builtin.dnf:
         name: jellyfin
         state: present
@@ -217,6 +229,7 @@
 
     - name: Enable and start Jellyfin
       become: true
+      become_user: root
       ansible.builtin.service:
         name: jellyfin
         state: started
@@ -227,6 +240,7 @@
     # Users & permissions
     - name: Allow passwordless sudo for user {{ server_main_user }}
       become: true
+      become_user: root
       ansible.builtin.copy:
         dest: "/etc/sudoers.d/{{ server_main_user }}"
         content: "{{ server_main_user }} ALL=(ALL) NOPASSWD:ALL"
@@ -237,6 +251,7 @@
 
     - name: Ensure borg user exists
       become: true
+      become_user: root
       ansible.builtin.user:
         name: "{{ borg_user }}"
         state: present
@@ -246,6 +261,7 @@
 
     - name: Set password for borg user
       become: true
+      become_user: root
       ansible.builtin.user:
         name: "{{ borg_user }}"
         password: "{{ borg_password | password_hash('sha512') }}"
@@ -255,6 +271,7 @@
 
     - name: Ensure docker group exists
       become: true
+      become_user: root
       ansible.builtin.group:
         name: docker
         state: present
@@ -262,6 +279,7 @@
 
     - name: Add user to docker group - {{ server_main_user }}
       become: true
+      become_user: root
       ansible.builtin.user:
         name: "{{ server_main_user }}"
         groups: docker
@@ -280,6 +298,7 @@
 
     - name: Run WebDAV container
       become: true
+      become_user: root
       community.docker.docker_container:
         name: webdav
         image: "{{ docker_image }}"
@@ -300,6 +319,7 @@
 
     - name: Add cron job for daily WebDAV sync
       become: true
+      become_user: root
       ansible.builtin.cron:
         name: "Daily dav sync"
         minute: "0"
@@ -334,6 +354,7 @@
     # Borg backup
     - name: Ensure borg backup dir exists
       become: true
+      become_user: root
       ansible.builtin.file:
         path: "{{ borg_backup_dir }}"
         state: directory
@@ -356,6 +377,7 @@
 
     - name: Fix permissions for borg repo
       become: true
+      become_user: root
       ansible.builtin.file:
         path: "{{ borg_backup_dir }}"
         recurse: true
@@ -367,6 +389,7 @@
     # Firewall & SELinux
     - name: Ensure firewalld is enabled and running
       become: true
+      become_user: root
       ansible.builtin.service:
         name: firewalld
         state: started
@@ -375,6 +398,7 @@
 
     - name: Open HTTP/HTTPS
       become: true
+      become_user: root
       ansible.posix.firewalld:
         service: "{{ item }}"
         permanent: true
@@ -388,6 +412,7 @@
 
     - name: Allow nginx outbound network (SELinux)
       become: true
+      become_user: root
       ansible.posix.seboolean:
         name: httpd_can_network_connect
         state: true
@@ -400,6 +425,7 @@
     # ACME webroot + websocket map
     - name: Create ACME webroot
       become: true
+      become_user: root
       ansible.builtin.file:
         path: /var/www/certbot/.well-known/acme-challenge
         state: directory
@@ -410,6 +436,7 @@
 
     - name: Ensure nginx conf.d exists
       become: true
+      become_user: root
       ansible.builtin.file:
         path: /etc/nginx/conf.d
         state: directory
@@ -420,6 +447,7 @@
 
     - name: Ensure nginx snippets dir exists
       become: true
+      become_user: root
       ansible.builtin.file:
         path: /etc/nginx/snippets
         state: directory
@@ -430,6 +458,7 @@
 
     - name: Write letsencrypt snippet (serve challenges)
       become: true
+      become_user: root
       ansible.builtin.copy:
         dest: /etc/nginx/snippets/letsencrypt.conf
         mode: "0644"
@@ -444,6 +473,7 @@
 
     - name: WebSocket upgrade map (used by Immich)
       become: true
+      become_user: root
       ansible.builtin.copy:
         dest: /etc/nginx/conf.d/00_websocket_map.conf
         mode: "0644"
@@ -458,6 +488,7 @@
     # Nginx reverse proxies (HTTP)
     - name: Proxy for {{ jelly_domain }}
       become: true
+      become_user: root
       ansible.builtin.copy:
         dest: /etc/nginx/conf.d/{{ jelly_domain }}.conf
         mode: "0644"
@@ -483,6 +514,7 @@
 
     - name: Proxy for {{ immich_domain }}
       become: true
+      become_user: root
       ansible.builtin.copy:
         dest: /etc/nginx/conf.d/{{ immich_domain }}.conf
         mode: "0644"
@@ -520,6 +552,7 @@
 
     - name: Proxy for {{ aichat_domain }}
       become: true
+      become_user: root
       ansible.builtin.copy:
         dest: "/etc/nginx/conf.d/{{ aichat_domain }}.conf"
         mode: "0644"
@@ -551,6 +584,7 @@
 
     - name: Proxy for k3s ingress ({{ detourpilot_api_domain }})
       become: true
+      become_user: root
       ansible.builtin.copy:
         dest: "/etc/nginx/conf.d/{{ detourpilot_api_domain }}.conf"
         mode: "0644"
@@ -579,6 +613,7 @@
 
     - name: Test nginx config
       become: true
+      become_user: root
       ansible.builtin.command: nginx -t
       register: nginx_test
       changed_when: false
@@ -587,6 +622,7 @@
 
     - name: Add cni0 to firewalld trusted zone (k3s pod networking)
       become: true
+      become_user: root
       ansible.posix.firewalld:
         zone: trusted
         interface: cni0
@@ -600,6 +636,7 @@
 
     - name: Wait for k3s node to be Ready
       become: true
+      become_user: root
       ansible.builtin.command:
         cmd: /usr/local/bin/k3s kubectl wait --for=condition=Ready node --all --timeout=120s
       changed_when: false
@@ -607,6 +644,7 @@
 
     - name: Ensure .kube dir exists in user home
       become: true
+      become_user: root
       ansible.builtin.file:
         path: "{{ home_dir }}/.kube"
         state: directory
@@ -617,6 +655,7 @@
 
     - name: Copy kubeconfig to user home
       become: true
+      become_user: root
       ansible.builtin.copy:
         src: /etc/rancher/k3s/k3s.yaml
         dest: "{{ home_dir }}/.kube/config"
@@ -628,6 +667,7 @@
 
     - name: Ensure hostPath data dir exists (user-writable for scp)
       become: true
+      become_user: root
       ansible.builtin.file:
         path: "{{ detourpilot_data_dir }}"
         state: directory
@@ -659,6 +699,7 @@
 
     - name: Ensure deployment clone parent dir exists
       become: true
+      become_user: root
       ansible.builtin.file:
         path: "{{ detourpilot_k8s_dir | dirname }}"
         state: directory
@@ -674,8 +715,6 @@
       tags: [detourpilot, k3s]
 
     - name: Clone DetourPilot deployment repo (manifests)
-      become: true
-      become_user: "{{ server_main_user }}"
       ansible.builtin.git:
         repo: "{{ detourpilot_deployment_repo | regex_replace('^https://', 'https://oauth2:' + gitlab_deployment_token + '@') }}"
         dest: "{{ detourpilot_k8s_dir }}"
@@ -687,8 +726,6 @@
       tags: [detourpilot, k3s]
 
     - name: Point seed-data Job hostPath at this server's user
-      become: true
-      become_user: "{{ server_main_user }}"
       ansible.builtin.replace:
         path: "{{ detourpilot_k8s_dir }}/seed-data-job.yaml"
         regexp: "/home/hubserv/apps/detourpilot/data"
@@ -696,8 +733,6 @@
       tags: [detourpilot, k3s]
 
     - name: Write .env for deploy.sh (registry credentials)
-      become: true
-      become_user: "{{ server_main_user }}"
       ansible.builtin.copy:
         dest: "{{ detourpilot_k8s_dir }}/.env"
         content: |
@@ -711,8 +746,6 @@
       tags: [detourpilot, k3s]
 
     - name: Check if DetourPilot back-end is already deployed
-      become: true
-      become_user: "{{ server_main_user }}"
       ansible.builtin.command:
         cmd: /usr/local/bin/k3s kubectl get deployment back-end -n detourpilot -o jsonpath='{.status.readyReplicas}'
       environment:
@@ -723,8 +756,6 @@
       tags: [detourpilot, k3s]
 
     - name: Deploy DetourPilot (deploy.sh)
-      become: true
-      become_user: "{{ server_main_user }}"
       ansible.builtin.command:
         cmd: ./deploy.sh
         chdir: "{{ detourpilot_k8s_dir }}"
@@ -741,6 +772,7 @@
     # TLS via certbot (nginx plugin) + renew
     - name: Issue cert for {{ jelly_domain }}
       become: true
+      become_user: root
       ansible.builtin.command:
         argv:
           - certbot
@@ -759,6 +791,7 @@
 
     - name: Issue cert for {{ immich_domain }}
       become: true
+      become_user: root
       ansible.builtin.command:
         argv:
           - certbot
@@ -777,6 +810,7 @@
 
     - name: Issue cert for {{ aichat_domain }}
       become: true
+      become_user: root
       ansible.builtin.command:
         argv:
           - certbot
@@ -795,6 +829,7 @@
 
     - name: Issue cert for {{ detourpilot_api_domain }}
       become: true
+      become_user: root
       ansible.builtin.command:
         argv:
           - certbot
@@ -813,6 +848,7 @@
 
     - name: Restore SELinux contexts for certbot paths
       become: true
+      become_user: root
       ansible.builtin.command: restorecon -Rv /etc/letsencrypt /var/www/certbot
       changed_when: false
       when:
@@ -822,6 +858,7 @@
 
     - name: Restart nginx after TLS issuance
       become: true
+      become_user: root
       ansible.builtin.service:
         name: nginx
         state: restarted
@@ -829,6 +866,7 @@
 
     - name: Install certbot renew systemd service
       become: true
+      become_user: root
       ansible.builtin.copy:
         dest: /etc/systemd/system/certbot-renew.service
         mode: "0644"
@@ -844,6 +882,7 @@
 
     - name: Install certbot renew systemd timer
       become: true
+      become_user: root
       ansible.builtin.copy:
         dest: /etc/systemd/system/certbot-renew.timer
         mode: "0644"
@@ -862,6 +901,7 @@
 
     - name: Enable and start certbot-renew.timer
       become: true
+      become_user: root
       ansible.builtin.systemd:
         name: certbot-renew.timer
         state: started
@@ -872,6 +912,7 @@
     # Setup Open WebUI
     - name: Ensure ~/apps/aichat exists
       become: true
+      become_user: root
       ansible.builtin.file:
         path: "{{ aichat_dir }}"
         state: directory
@@ -882,6 +923,7 @@
 
     - name: Copy docker compose for AI chat
       become: true
+      become_user: root
       ansible.builtin.template:
         src: open-webui-docker-compose.yml
         dest: "{{ aichat_compose_path }}"
@@ -892,6 +934,7 @@
 
     - name: Replace OpenAI API key placeholder in compose file
       become: true
+      become_user: root
       ansible.builtin.replace:
         path: "{{ aichat_compose_path }}"
         regexp: "%openai_api_key%"
@@ -901,6 +944,7 @@
 
     - name: Replace Z.AI API key placeholder in compose file
       become: true
+      become_user: root
       ansible.builtin.replace:
         path: "{{ aichat_compose_path }}"
         regexp: "%z_ai_api_key%"
@@ -910,6 +954,7 @@
 
     - name: Replace Mistral API key placeholder in compose file
       become: true
+      become_user: root
       ansible.builtin.replace:
         path: "{{ aichat_compose_path }}"
         regexp: "%mistral_api_key%"
@@ -919,6 +964,7 @@
 
     - name: Replace OpenRouter API key placeholder in compose file
       become: true
+      become_user: root
       ansible.builtin.replace:
         path: "{{ aichat_compose_path }}"
         regexp: "%openrouter_api_key%"
@@ -928,6 +974,7 @@
 
     - name: Replace Brave API key placeholder in compose file
       become: true
+      become_user: root
       ansible.builtin.replace:
         path: "{{ aichat_compose_path }}"
         regexp: "%brave_api_key%"
@@ -937,6 +984,7 @@
 
     - name: Replace domain placeholder in compose file
       become: true
+      become_user: root
       ansible.builtin.replace:
         path: "{{ aichat_compose_path }}"
         regexp: "%aichat_domain%"
@@ -946,6 +994,7 @@
 
     - name: Copy settings config for searxng
       become: true
+      become_user: root
       ansible.builtin.template:
         src: searxng_settings.yml
         dest: "{{ searxng_settings_path }}"
@@ -955,16 +1004,12 @@
       tags: [aichat, docker]
 
     - name: Bring up AI chat compose
-      become: true
-      become_user: "{{ server_main_user }}"
       community.docker.docker_compose_v2:
         project_src: "{{ aichat_dir }}"
         state: present
       tags: [aichat, docker]
 
     - name: Install Immich
-      become: true
-      become_user: "{{ server_main_user }}"
       ansible.builtin.shell: |
         set -euo pipefail
         curl -fsSL https://raw.githubusercontent.com/immich-app/immich/main/install.sh | bash
@@ -976,11 +1021,15 @@
 
   handlers:
     - name: Reload firewalld
+      become: true
+      become_user: root
       ansible.builtin.service:
         name: firewalld
         state: reloaded
 
     - name: Reload nginx
+      become: true
+      become_user: root
       ansible.builtin.service:
         name: nginx
         state: reloaded
