@@ -1146,6 +1146,28 @@
       delay: 60
       tags: [immich]
 
+    - name: Add SELinux shared labels to Immich bind mounts
+      ansible.builtin.replace:
+        path: "{{ immich_dir }}/docker-compose.yml"
+        regexp: "{{ item.regexp }}"
+        replace: "{{ item.replace }}"
+      loop:
+        - regexp: '\$\{UPLOAD_LOCATION\}:/data$'
+          replace: '${UPLOAD_LOCATION}:/data:z'
+        - regexp: '\$\{DB_DATA_LOCATION\}:/var/lib/postgresql/data$'
+          replace: '${DB_DATA_LOCATION}:/var/lib/postgresql/data:z'
+      tags: [immich]
+
+    - name: Bring up Immich compose
+      community.docker.docker_compose_v2:
+        project_src: "{{ immich_dir }}"
+        state: present
+      register: immich_compose_up
+      until: immich_compose_up is not failed
+      retries: 5
+      delay: 60
+      tags: [immich]
+
   handlers:
     - name: Reload firewalld
       become: true
