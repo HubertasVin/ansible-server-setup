@@ -82,6 +82,8 @@
     uid: "{{ ansible_facts.getent_passwd[server_main_user][1] }}"
     gid: "{{ ansible_facts.getent_passwd[server_main_user][2] }}"
 
+    apps_dir: "{{ home_dir }}/apps"
+
     docker_image: "dgraziotin/nginx-webdav-nononsense"
     dav_dir: "{{ home_dir }}/dav_data"
     sync_script_path: "{{ home_dir }}/sync-data.sh"
@@ -95,14 +97,14 @@
     # Jellyfin media library
     media_dir: /srv/media
 
-    aichat_dir: "{{ home_dir }}/apps/aichat"
+    aichat_dir: "{{ apps_dir }}/aichat"
     aichat_compose_path: "{{ aichat_dir }}/docker-compose.yml"
     searxng_settings_path: "{{ aichat_dir }}/settings.yml"
 
     # k3s / DetourPilot
     detourpilot_deployment_repo: "https://gitlab.com/detourpilot/deployment.git"
-    detourpilot_k8s_dir: "{{ home_dir }}/apps/detourpilot/k8s"
-    detourpilot_data_dir: "{{ home_dir }}/apps/detourpilot/data"
+    detourpilot_k8s_dir: "{{ apps_dir }}/detourpilot/k8s"
+    detourpilot_data_dir: "{{ apps_dir }}/detourpilot/data"
     detourpilot_data_files:
       - geocode.json
       - places.json
@@ -1134,7 +1136,7 @@
         set -euo pipefail
         curl -fsSL https://raw.githubusercontent.com/immich-app/immich/main/install.sh | bash
       args:
-        chdir: "{{ home_dir }}"
+        chdir: "{{ apps_dir }}"
       changed_when: false
       when: immich_install | default(false) | bool
       tags: [immich]
