@@ -23,8 +23,8 @@ services:
 
       # External Providers
       - ENABLE_OPENAI_API=true
-      - OPENAI_API_BASE_URLS=https://api.openai.com/v1;https://api.z.ai/api/paas/v4;https://api.mistral.ai/v1;https://openrouter.ai/api/v1
-      - OPENAI_API_KEYS=%openai_api_key%;%z_ai_api_key%;%mistral_api_key%;%openrouter_api_key%
+      - OPENAI_API_BASE_URLS=https://openrouter.ai/api/v1
+      - OPENAI_API_KEYS=%openrouter_api_key%
       # RAG
       - RAG_EMBEDDING_ENGINE=openai
       - RAG_OPENAI_API_BASE_URL=https://openrouter.ai/api/v1

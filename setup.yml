@@ -24,18 +24,6 @@
       prompt: "Enter Proton Drive password"
       private: true
 
-    - name: openai_api_key
-      prompt: "Enter OpenAI API key"
-      private: true
-
-    - name: z_ai_api_key
-      prompt: "Enter Z.AI API key"
-      private: true
-
-    - name: mistral_api_key
-      prompt: "Enter Mistral API key"
-      private: true
-
     - name: openrouter_api_key
       prompt: "Enter OpenRouter API key"
       private: true
@@ -1050,36 +1038,6 @@
         owner: "{{ server_main_user }}"
         group: "{{ server_main_user }}"
         mode: "0644"
-      tags: [aichat, docker]
-
-    - name: Replace OpenAI API key placeholder in compose file
-      become: true
-      become_user: root
-      ansible.builtin.replace:
-        path: "{{ aichat_compose_path }}"
-        regexp: "%openai_api_key%"
-        replace: "{{ openai_api_key }}"
-      no_log: true
-      tags: [aichat, docker]
-
-    - name: Replace Z.AI API key placeholder in compose file
-      become: true
-      become_user: root
-      ansible.builtin.replace:
-        path: "{{ aichat_compose_path }}"
-        regexp: "%z_ai_api_key%"
-        replace: "{{ z_ai_api_key }}"
-      no_log: true
-      tags: [aichat, docker]
-
-    - name: Replace Mistral API key placeholder in compose file
-      become: true
-      become_user: root
-      ansible.builtin.replace:
-        path: "{{ aichat_compose_path }}"
-        regexp: "%mistral_api_key%"
-        replace: "{{ mistral_api_key }}"
-      no_log: true
       tags: [aichat, docker]
 
     - name: Replace OpenRouter API key placeholder in compose file
