@@ -172,6 +172,8 @@
           - python3-pyparsing
           - rclone
           - zlib-devel
+          - postgresql-server
+          - postgresql-contrib
         state: present
         update_cache: true
       when: ansible_facts['os_family'] == "RedHat"
@@ -246,6 +248,7 @@
         - crond
         - firewalld
         - jellyfin
+        - postgresql
       tags: [services]
 
   tasks:
@@ -297,6 +300,10 @@
         groups: docker
         append: true
       tags: [users, docker]
+
+    - name: Initialize Postgres cluster
+      ansible.builtin.command: postgresql-setup --initdb
+      when: not pg_cluster.stat.exists
 
     # Jellyfin media library (/srv/media, shared with the jellyfin service user)
     - name: Ensure jellyfin group exists
@@ -582,7 +589,7 @@
           - /etc/nginx/conf.d/{{ jelly_domain }}.conf
           - /etc/nginx/conf.d/{{ immich_domain }}.conf
           - /etc/nginx/conf.d/{{ aichat_domain }}.conf
-          - /etc/nginx/conf.d/{{ detourpilot_api_domain }}.conf
+          - /etc/nginx/conf.d/{{ roamermaps_api_domain }}.conf
       register: vhost_tls_files
       changed_when: false
       failed_when: vhost_tls_files.rc not in [0, 1, 2]
@@ -687,17 +694,17 @@
       when: ('/etc/nginx/conf.d/' ~ aichat_domain ~ '.conf') not in vhost_tls_files.stdout_lines
       tags: [nginx]
 
-    - name: Proxy for k3s ingress ({{ detourpilot_api_domain }})
+    - name: Proxy for k3s ingress ({{ roamermaps_api_domain }})
       become: true
       become_user: root
       ansible.builtin.copy:
-        dest: "/etc/nginx/conf.d/{{ detourpilot_api_domain }}.conf"
+        dest: "/etc/nginx/conf.d/{{ roamermaps_api_domain }}.conf"
         mode: "0644"
         content: |
           server {
               listen 80;
               listen [::]:80;
-              server_name {{ detourpilot_api_domain }};
+              server_name {{ roamermaps_api_domain }};
               client_max_body_size 5000M;
 
               include /etc/nginx/snippets/letsencrypt.conf;
@@ -714,7 +721,7 @@
               }
           }
       notify: Reload nginx
-      when: ('/etc/nginx/conf.d/' ~ detourpilot_api_domain ~ '.conf') not in vhost_tls_files.stdout_lines
+      when: ('/etc/nginx/conf.d/' ~ roamermaps_api_domain ~ '.conf') not in vhost_tls_files.stdout_lines
       tags: [nginx]
 
     - name: Test nginx config
@@ -935,7 +942,7 @@
       when: not (testing_mode | default(false) | bool)
       tags: [tls]
 
-    - name: Issue cert for {{ detourpilot_api_domain }}
+    - name: Issue cert for {{ roamermaps_api_domain }}
       become: true
       become_user: root
       ansible.builtin.command:
@@ -943,7 +950,7 @@
           - certbot
           - --nginx
           - -d
-          - "{{ detourpilot_api_domain }}"
+          - "{{ roamermaps_api_domain }}"
           - --non-interactive
           - --agree-tos
           - --email
