@@ -113,7 +113,14 @@
     lector_compose_path: "{{ lector_dir }}/docker-compose.yml"
     lector_uid: "1001"
     lector_gid: "1001"
-    lector_api_url: "https://{{ tailscale_dns_name | default(ansible_facts['default_ipv4']['address']) }}:3457"
+    lector_api_url: "https://{{ lector_domain }}"
+
+    # Tailnet-side TLS: nginx listens on the tailnet IP for these names and
+    # dnsmasq answers them with it, so the URLs are the domains, never the IP.
+    tailnet_dnsmasq_file: /etc/dnsmasq.d/tailnet-domains.conf
+    tailnet_names:
+      - "{{ immich_domain }}"
+      - "{{ lector_domain }}"
 
     # k3s / RoamerMaps
     roamermaps_deployment_repo: "https://gitlab.com/roamermaps/deployment.git"
@@ -211,6 +218,7 @@
           - postgresql-server
           - postgresql-contrib
           - tailscale
+          - dnsmasq
         state: present
         update_cache: true
       when: ansible_facts['os_family'] == "RedHat"
@@ -599,15 +607,6 @@
       notify: Reload nginx
       tags: [nginx, tls]
 
-    - name: Remove the WebSocket upgrade map (only Immich used it)
-      become: true
-      become_user: root
-      ansible.builtin.file:
-        path: /etc/nginx/conf.d/00_websocket_map.conf
-        state: absent
-      notify: Reload nginx
-      tags: [nginx]
-
     # Nginx reverse proxies (HTTP)
     # NOTE: certbot --nginx rewrites these files to add the 443 server block.
     # Detect existing TLS blocks on the remote host so re-runs never clobber them.
@@ -654,14 +653,23 @@
       when: ('/etc/nginx/conf.d/' ~ jelly_domain ~ '.conf') not in vhost_tls_files.stdout_lines
       tags: [nginx]
 
-    - name: Remove the public vhost for {{ immich_domain }}
+    - name: Serve ACME challenges for {{ tailnet_names | join(', ') }}
       become: true
       become_user: root
-      ansible.builtin.file:
-        path: /etc/nginx/conf.d/{{ immich_domain }}.conf
-        state: absent
+      ansible.builtin.copy:
+        dest: /etc/nginx/conf.d/{{ item }}.conf
+        mode: "0644"
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name {{ item }};
+
+              include /etc/nginx/snippets/letsencrypt.conf;
+          }
+      loop: "{{ tailnet_names }}"
       notify: Reload nginx
-      tags: [nginx, immich]
+      tags: [nginx, tls]
 
     - name: Proxy for {{ aichat_domain }}
       become: true
@@ -941,6 +949,68 @@
       when: not (testing_mode | default(false) | bool)
       tags: [tls]
 
+    # The vhosts for these names are tailnet-only and hand-written, so certbot
+    # must not run its nginx installer (it would add a wildcard 443 listener).
+    - name: Apply pending nginx changes before ACME runs
+      ansible.builtin.meta: flush_handlers
+
+    - name: Check the renewal authenticator for {{ immich_domain }}
+      ansible.builtin.command: grep -c "^authenticator = nginx" /etc/letsencrypt/renewal/{{ immich_domain }}.conf
+      register: immich_renewal_auth
+      changed_when: false
+      failed_when: false
+      tags: [tls]
+
+    - name: Move the renewal to the webroot authenticator for {{ immich_domain }}
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - renew
+          - --cert-name
+          - "{{ immich_domain }}"
+          - --webroot
+          - -w
+          - /var/www/certbot
+          - --force-renewal
+          - --non-interactive
+      changed_when: true
+      when:
+        - not (testing_mode | default(false) | bool)
+        - immich_renewal_auth.stdout | trim == "1"
+      tags: [tls]
+
+    - name: Drop the nginx installer from the renewal config for {{ immich_domain }}
+      become: true
+      become_user: root
+      ansible.builtin.replace:
+        path: /etc/letsencrypt/renewal/{{ immich_domain }}.conf
+        regexp: "^installer = nginx$"
+        replace: "# installer removed — the vhost is hand-written and tailnet-only"
+      tags: [tls]
+
+    - name: Issue cert for {{ lector_domain }}
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - certonly
+          - --webroot
+          - -w
+          - /var/www/certbot
+          - -d
+          - "{{ lector_domain }}"
+          - --non-interactive
+          - --agree-tos
+          - --email
+          - "{{ certbot_email }}"
+      register: certbot_lector
+      changed_when: certbot_lector.stdout is search('Certificate not yet due for renewal') | ternary(false, certbot_lector.rc == 0)
+      when: not (testing_mode | default(false) | bool)
+      tags: [tls]
+
     - name: Restore SELinux contexts for certbot paths
       become: true
       become_user: root
@@ -1108,6 +1178,127 @@
         tailscale_dns_name: "{{ (tailscale_node.stdout | from_json).Self.DNSName | regex_replace('\\.$', '') }}"
       tags: [tailscale, docker]
 
+    - name: Read the tailnet IPv4
+      become: true
+      become_user: root
+      ansible.builtin.command: tailscale ip -4
+      register: tailscale_ip_cmd
+      changed_when: false
+      tags: [tailscale, docker]
+
+    - name: Record the tailnet IP
+      ansible.builtin.set_fact:
+        tailscale_ip: "{{ tailscale_ip_cmd.stdout | trim }}"
+      tags: [tailscale, docker]
+
+    - name: Trust the Tailscale interface (tailnet peers only)
+      become: true
+      become_user: root
+      ansible.posix.firewalld:
+        zone: trusted
+        interface: tailscale0
+        permanent: true
+        state: enabled
+        immediate: true
+      notify: Reload firewalld
+      tags: [firewall, tailscale]
+
+    - name: Resolve the service names to the tailnet IP over dnsmasq
+      become: true
+      become_user: root
+      ansible.builtin.copy:
+        dest: "{{ tailnet_dnsmasq_file }}"
+        mode: "0644"
+        content: |
+          listen-address={{ tailscale_ip }}
+          bind-dynamic
+          no-resolv
+          server=1.1.1.1
+          {% for name in tailnet_names %}
+          address=/{{ name }}/{{ tailscale_ip }}
+          {% endfor %}
+      notify: Restart dnsmasq
+      tags: [tailscale, dns]
+
+    - name: Enable and start dnsmasq
+      become: true
+      become_user: root
+      ansible.builtin.systemd:
+        name: dnsmasq
+        enabled: true
+        state: started
+      tags: [tailscale, dns]
+
+    - name: Tailnet proxy for {{ immich_domain }}
+      become: true
+      become_user: root
+      ansible.builtin.copy:
+        dest: /etc/nginx/conf.d/{{ immich_domain }}-tailnet.conf
+        mode: "0644"
+        content: |
+          server {
+              listen {{ tailscale_ip }}:443 ssl;
+              server_name {{ immich_domain }};
+              client_max_body_size 5000M;
+
+              ssl_certificate     /etc/letsencrypt/live/{{ immich_domain }}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/{{ immich_domain }}/privkey.pem;
+
+              proxy_set_header Host              $http_host;
+              proxy_set_header X-Real-IP         $remote_addr;
+              proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade           $http_upgrade;
+              proxy_set_header Connection        "upgrade";
+
+              proxy_read_timeout  600s;
+              proxy_send_timeout  600s;
+              send_timeout        600s;
+
+              location / {
+                  proxy_pass http://127.0.0.1:2283;
+              }
+          }
+      notify: Reload nginx
+      tags: [nginx, immich, tailscale]
+
+    - name: Tailnet proxy for {{ lector_domain }}
+      become: true
+      become_user: root
+      ansible.builtin.copy:
+        dest: /etc/nginx/conf.d/{{ lector_domain }}-tailnet.conf
+        mode: "0644"
+        content: |
+          server {
+              listen {{ tailscale_ip }}:443 ssl;
+              server_name {{ lector_domain }};
+              client_max_body_size 5000M;
+
+              ssl_certificate     /etc/letsencrypt/live/{{ lector_domain }}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/{{ lector_domain }}/privkey.pem;
+
+              proxy_http_version 1.1;
+              proxy_buffering off;
+              proxy_set_header Host              $host;
+              proxy_set_header X-Real-IP         $remote_addr;
+              proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+              proxy_set_header Upgrade           $http_upgrade;
+              proxy_set_header Connection        "upgrade";
+              proxy_read_timeout 600s;
+
+              location / {
+                  proxy_pass http://127.0.0.1:3400;
+              }
+
+              location /api/ {
+                  proxy_pass http://127.0.0.1:3457;
+              }
+          }
+      notify: Reload nginx
+      tags: [nginx, lector, tailscale]
+
     - name: Serve the service ports to the tailnet
       become: true
       become_user: root
@@ -1242,3 +1433,10 @@
       ansible.builtin.service:
         name: nginx
         state: reloaded
+
+    - name: Restart dnsmasq
+      become: true
+      become_user: root
+      ansible.builtin.service:
+        name: dnsmasq
+        state: restarted
