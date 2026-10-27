@@ -26,11 +26,12 @@
 
     - name: tailscale_authkey
       prompt: |-
-        ─── Tailscale auth key for this host ────────────────────────────────────
+        ─── Tailscale auth key — only used to join a node that is not on the
+        tailnet yet. Leave empty if this host is already joined.
         Generate at: https://login.tailscale.com/admin/settings/keys
-        → Generate auth key
         ─────────────────────────────────────────────────────────────────────────
       private: true
+      default: ""
 
     - name: openrouter_api_key
       prompt: "Enter OpenRouter API key"
@@ -86,6 +87,9 @@
     sync_log_path: "{{ home_dir }}/sync-data.log"
 
     tailscale_ports: [3400, 3457, 2283]
+    # Tagged devices carry no node-key expiry; the tag must exist in the ACL's tagOwners.
+    tailscale_tags: "tag:server"
+    tailscale_up_argv: "{{ ['tailscale', 'up', '--auth-key=' + tailscale_authkey] + (['--advertise-tags=' + tailscale_tags] if tailscale_tags | length > 0 else []) }}"
 
     borg_user: borguser
     borg_password: "{{ borg_repo_password }}"
@@ -1126,13 +1130,19 @@
       delay: 60
       tags: [aichat, docker]
 
+    - name: Read tailnet state
+      ansible.builtin.command: tailscale status --json
+      register: tailscale_status
+      changed_when: false
+      failed_when: false
+      tags: [tailscale, docker]
+
     - name: Join the tailnet
       ansible.builtin.command:
-        argv:
-          - tailscale
-          - up
-          - "--auth-key={{ tailscale_authkey }}"
-      when: (tailscale_status.stdout | default('{}', true) | from_json).BackendState | default('') != 'Running'
+        argv: "{{ tailscale_up_argv }}"
+      when:
+        - (tailscale_status.stdout | default('{}', true) | from_json).BackendState | default('') != 'Running'
+        - tailscale_authkey | length > 0
       changed_when: true
       no_log: true
       tags: [tailscale, docker]
