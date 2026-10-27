@@ -24,6 +24,14 @@
       prompt: "Enter Proton Drive password"
       private: true
 
+    - name: tailscale_authkey
+      prompt: |-
+        ─── Tailscale auth key for this host ────────────────────────────────────
+        Generate at: https://login.tailscale.com/admin/settings/keys
+        → Generate auth key
+        ─────────────────────────────────────────────────────────────────────────
+      private: true
+
     - name: openrouter_api_key
       prompt: "Enter OpenRouter API key"
       private: true
@@ -45,7 +53,7 @@
     - name: gitlab_registry_username
       prompt: |
         ─── GitLab Container Registry deploy token ─────────────────────────────
-        Generate at: https://gitlab.com/detourpilot/back-end/-/settings/repository
+        Generate at: https://gitlab.com/roamermaps/back-end/-/settings/repository
         → Deploy tokens → New deploy token
         Scope: read_registry
         ─────────────────────────────────────────────────────────────────────────
@@ -57,7 +65,7 @@
 
     - name: gitlab_deployment_token
       prompt: |
-        ─── GitLab token to clone detourpilot/deployment ──────────────────────
+        ─── GitLab token to clone roamermaps/deployment ──────────────────────
         Generate at: https://gitlab.com/-/user_settings/personal_access_tokens
         → Add new token
         Resource access: Code
@@ -76,6 +84,8 @@
     dav_dir: "{{ home_dir }}/dav_data"
     sync_script_path: "{{ home_dir }}/sync-data.sh"
     sync_log_path: "{{ home_dir }}/sync-data.log"
+
+    tailscale_ports: [3400, 3457, 2283]
 
     borg_user: borguser
     borg_password: "{{ borg_repo_password }}"
@@ -96,13 +106,13 @@
     lector_compose_path: "{{ lector_dir }}/docker-compose.yml"
     lector_uid: "1001"
     lector_gid: "1001"
-    lector_api_url: "http://{{ ansible_facts['default_ipv4']['address'] }}:3457"
+    lector_api_url: "https://{{ tailscale_dns_name | default(ansible_facts['default_ipv4']['address']) }}:3457"
 
-    # k3s / DetourPilot
-    detourpilot_deployment_repo: "https://gitlab.com/detourpilot/deployment.git"
-    detourpilot_k8s_dir: "{{ apps_dir }}/detourpilot/k8s"
-    detourpilot_data_dir: "{{ apps_dir }}/detourpilot/data"
-    detourpilot_data_files:
+    # k3s / RoamerMaps
+    roamermaps_deployment_repo: "https://gitlab.com/roamermaps/deployment.git"
+    roamermaps_k8s_dir: "{{ apps_dir }}/roamermaps/k8s"
+    roamermaps_data_dir: "{{ apps_dir }}/roamermaps/data"
+    roamermaps_data_files:
       - geocode.json
       - places.json
       - ranking.json
@@ -152,6 +162,18 @@
       when: ansible_facts['os_family'] == "RedHat"
       tags: [jellyfin]
 
+    # Tailscale: join the tailnet, then serve the loopback ports on it.
+    - name: Add the Tailscale dnf repository
+      become: true
+      become_user: root
+      ansible.builtin.get_url:
+        url: https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+        dest: /etc/yum.repos.d/tailscale.repo
+        owner: root
+        group: root
+        mode: "0644"
+      tags: [tailscale]
+
     - name: Install base packages (Fedora)
       become: true
       become_user: root
@@ -181,6 +203,7 @@
           - zlib-devel
           - postgresql-server
           - postgresql-contrib
+          - tailscale
         state: present
         update_cache: true
       when: ansible_facts['os_family'] == "RedHat"
@@ -256,6 +279,7 @@
         - firewalld
         - jellyfin
         - postgresql
+        - tailscaled
       tags: [services]
 
   tasks:
@@ -717,7 +741,7 @@
               include /etc/nginx/snippets/letsencrypt.conf;
 
               location / {
-                  proxy_pass         http://127.0.0.1:{{ detourpilot_api_port }};
+                  proxy_pass         http://127.0.0.1:{{ roamermaps_api_port }};
                   proxy_set_header   Host              $host;
                   proxy_set_header   X-Real-IP         $remote_addr;
                   proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -789,72 +813,72 @@
       become: true
       become_user: root
       ansible.builtin.file:
-        path: "{{ detourpilot_data_dir }}"
+        path: "{{ roamermaps_data_dir }}"
         state: directory
         owner: "{{ server_main_user }}"
         group: "{{ server_main_user }}"
         mode: "0755"
-      tags: [detourpilot, k3s]
+      tags: [roamermaps, k3s]
 
-    - name: Wait for DetourPilot data files on server
+    - name: Wait for RoamerMaps data files on server
       ansible.builtin.pause:
         prompt: |
-          Copy the DetourPilot data files to {{ detourpilot_data_dir }}/ to the server:
-            {{ detourpilot_data_files | join(', ') }}
-          scp {{ detourpilot_data_files | join(' ') }} {{ server_main_user }}@<host>:{{ detourpilot_data_dir }}/
-      tags: [detourpilot, k3s]
+          Copy the RoamerMaps data files to {{ roamermaps_data_dir }}/ to the server:
+            {{ roamermaps_data_files | join(', ') }}
+          scp {{ roamermaps_data_files | join(' ') }} {{ server_main_user }}@<host>:{{ roamermaps_data_dir }}/
+      tags: [roamermaps, k3s]
 
-    - name: Check DetourPilot data files were copied
+    - name: Check RoamerMaps data files were copied
       ansible.builtin.stat:
-        path: "{{ detourpilot_data_dir }}/{{ item }}"
-      register: detourpilot_data
-      loop: "{{ detourpilot_data_files }}"
-      tags: [detourpilot, k3s]
+        path: "{{ roamermaps_data_dir }}/{{ item }}"
+      register: roamermaps_data
+      loop: "{{ roamermaps_data_files }}"
+      tags: [roamermaps, k3s]
 
     - name: Fail if any data file is missing
       ansible.builtin.assert:
-        that: detourpilot_data.results | rejectattr('stat.exists') | list | length == 0
-        fail_msg: "Missing data files in {{ detourpilot_data_dir }}/ - copy over files {{ detourpilot_data_files | join(', ') }} and re-run"
-      tags: [detourpilot, k3s]
+        that: roamermaps_data.results | rejectattr('stat.exists') | list | length == 0
+        fail_msg: "Missing data files in {{ roamermaps_data_dir }}/ - copy over files {{ roamermaps_data_files | join(', ') }} and re-run"
+      tags: [roamermaps, k3s]
 
     - name: Ensure deployment clone parent dir exists
       become: true
       become_user: root
       ansible.builtin.file:
-        path: "{{ detourpilot_k8s_dir | dirname }}"
+        path: "{{ roamermaps_k8s_dir | dirname }}"
         state: directory
         owner: "{{ server_main_user }}"
         group: "{{ server_main_user }}"
         mode: "0755"
-      tags: [detourpilot, k3s]
+      tags: [roamermaps, k3s]
 
     - name: Check if deployment repo is already cloned
       ansible.builtin.stat:
-        path: "{{ detourpilot_k8s_dir }}/.git"
-      register: detourpilot_git_dir
-      tags: [detourpilot, k3s]
+        path: "{{ roamermaps_k8s_dir }}/.git"
+      register: roamermaps_git_dir
+      tags: [roamermaps, k3s]
 
-    - name: Clone DetourPilot deployment repo (manifests)
+    - name: Clone RoamerMaps deployment repo (manifests)
       ansible.builtin.git:
-        repo: "{{ detourpilot_deployment_repo | regex_replace('^https://', 'https://oauth2:' + gitlab_deployment_token + '@') }}"
-        dest: "{{ detourpilot_k8s_dir }}"
+        repo: "{{ roamermaps_deployment_repo | regex_replace('^https://', 'https://oauth2:' + gitlab_deployment_token + '@') }}"
+        dest: "{{ roamermaps_k8s_dir }}"
         version: main
         update: true
         force: true
       no_log: true
-      when: not detourpilot_git_dir.stat.exists
-      tags: [detourpilot, k3s]
+      when: not roamermaps_git_dir.stat.exists
+      tags: [roamermaps, k3s]
 
     - name: Point seed-data Job hostPath at this server's user
       ansible.builtin.replace:
-        path: "{{ detourpilot_k8s_dir }}/seed-data-job.yaml"
-        regexp: "/home/hubserv/apps/detourpilot/data"
-        replace: "{{ detourpilot_data_dir }}"
-      tags: [detourpilot, k3s]
+        path: "{{ roamermaps_k8s_dir }}/seed-data-job.yaml"
+        regexp: "/home/hubserv/apps/roamermaps/data"
+        replace: "{{ roamermaps_data_dir }}"
+      tags: [roamermaps, k3s]
 
     - name: Write .env for deploy.sh (registry credentials)
       ansible.builtin.copy:
-        dest: "{{ detourpilot_k8s_dir }}/.env"
+        dest: "{{ roamermaps_k8s_dir }}/.env"
         content: |
           GITLAB_REGISTRY_USERNAME={{ gitlab_registry_username }}
           GITLAB_REGISTRY_PASSWORD={{ gitlab_registry_password }}
@@ -863,22 +887,22 @@
         group: "{{ server_main_user }}"
         mode: "0600"
       no_log: true
-      tags: [detourpilot, k3s]
+      tags: [roamermaps, k3s]
 
-    - name: Check if DetourPilot back-end is already deployed
+    - name: Check if RoamerMaps back-end is already deployed
       ansible.builtin.command:
-        cmd: /usr/local/bin/k3s kubectl get deployment back-end -n detourpilot -o jsonpath='{.status.readyReplicas}'
+        cmd: /usr/local/bin/k3s kubectl get deployment back-end -n roamermaps -o jsonpath='{.status.readyReplicas}'
       environment:
         KUBECONFIG: "{{ home_dir }}/.kube/config"
-      register: detourpilot_deployed
+      register: roamermaps_deployed
       failed_when: false
       changed_when: false
-      tags: [detourpilot, k3s]
+      tags: [roamermaps, k3s]
 
-    - name: Deploy DetourPilot
+    - name: Deploy RoamerMaps
       ansible.builtin.command:
         cmd: ./deploy.sh
-        chdir: "{{ detourpilot_k8s_dir }}"
+        chdir: "{{ roamermaps_k8s_dir }}"
       environment:
         KUBECONFIG: "{{ home_dir }}/.kube/config"
         GITLAB_REGISTRY_USERNAME: "{{ gitlab_registry_username }}"
@@ -886,10 +910,9 @@
         GITLAB_REGISTRY_EMAIL: "{{ certbot_email }}"
       changed_when: true
       no_log: false
-      when: detourpilot_deployed.stdout | default('0') | int == 0
-      tags: [detourpilot, k3s]
+      when: roamermaps_deployed.stdout | default('0') | int == 0
+      tags: [roamermaps, k3s]
 
-    # TLS via certbot (nginx plugin) + renew
     - name: Issue cert for {{ jelly_domain }}
       become: true
       become_user: root
@@ -905,8 +928,6 @@
           - "{{ certbot_email }}"
           - --redirect
       register: certbot_jelly
-      # Idempotent: certbot exits 0 and changes nothing when a renewal conf
-      # already exists for the domain (skipped only in testing mode).
       changed_when: certbot_jelly.stdout is search('Certificate not yet due for renewal') | ternary(false, certbot_jelly.rc == 0)
       when: not (testing_mode | default(false) | bool)
       tags: [tls]
@@ -963,8 +984,8 @@
           - --email
           - "{{ certbot_email }}"
           - --redirect
-      register: certbot_detourpilot
-      changed_when: certbot_detourpilot.stdout is search('Certificate not yet due for renewal') | ternary(false, certbot_detourpilot.rc == 0)
+      register: certbot_roamermaps
+      changed_when: certbot_roamermaps.stdout is search('Certificate not yet due for renewal') | ternary(false, certbot_roamermaps.rc == 0)
       when: not (testing_mode | default(false) | bool)
       tags: [tls]
 
@@ -1105,6 +1126,41 @@
       delay: 60
       tags: [aichat, docker]
 
+    - name: Join the tailnet
+      ansible.builtin.command:
+        argv:
+          - tailscale
+          - up
+          - "--auth-key={{ tailscale_authkey }}"
+      when: (tailscale_status.stdout | default('{}', true) | from_json).BackendState | default('') != 'Running'
+      changed_when: true
+      no_log: true
+      tags: [tailscale, docker]
+
+    - name: Read the node's tailnet DNS name
+      ansible.builtin.command: tailscale status --json
+      register: tailscale_node
+      changed_when: false
+      tags: [tailscale, docker]
+
+    - name: Record the tailnet DNS name
+      ansible.builtin.set_fact:
+        tailscale_dns_name: "{{ (tailscale_node.stdout | from_json).Self.DNSName | regex_replace('\\.$', '') }}"
+      tags: [tailscale, docker]
+
+    - name: Serve the service ports to the tailnet
+      ansible.builtin.command:
+        argv:
+          - tailscale
+          - serve
+          - --bg
+          - --yes
+          - "--https={{ item }}"
+          - "http://127.0.0.1:{{ item }}"
+      loop: "{{ tailscale_ports }}"
+      changed_when: false
+      tags: [tailscale, docker]
+
     - name: Install Immich
       ansible.builtin.shell: |
         set -euo pipefail
@@ -1129,6 +1185,13 @@
         - regexp: '\$\{DB_DATA_LOCATION\}:/var/lib/postgresql/data$'
           replace: "${DB_DATA_LOCATION}:/var/lib/postgresql/data:z"
       tags: [immich]
+
+    - name: Bind Immich to loopback
+      ansible.builtin.replace:
+        path: "{{ immich_dir }}/docker-compose.yml"
+        regexp: "^(\\s*)-\\s*['\"]?2283:2283['\"]?$"
+        replace: "\\1- '127.0.0.1:2283:2283'"
+      tags: [immich, tailscale]
 
     - name: Bring up Immich compose
       community.docker.docker_compose_v2:

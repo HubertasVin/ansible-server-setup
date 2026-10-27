@@ -4,8 +4,8 @@ services:
     container_name: lector
     restart: unless-stopped
     ports:
-      - "3400:3000"
-      - "3457:3457"
+      - "127.0.0.1:3400:3000"
+      - "127.0.0.1:3457:3457"
     environment:
       - NODE_ENV=production
       - LECTOR_MODE=${LECTOR_MODE:-selfhost}
