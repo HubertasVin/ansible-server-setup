@@ -951,8 +951,13 @@
 
     # The vhosts for these names are tailnet-only and hand-written, so certbot
     # must not run its nginx installer (it would add a wildcard 443 listener).
-    - name: Apply pending nginx changes before ACME runs
-      ansible.builtin.meta: flush_handlers
+    - name: Reload nginx so the ACME vhosts are live before issuance
+      become: true
+      become_user: root
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+      tags: [nginx, tls]
 
     - name: Check the renewal authenticator for {{ immich_domain }}
       ansible.builtin.command: grep -c "^authenticator = nginx" /etc/letsencrypt/renewal/{{ immich_domain }}.conf
