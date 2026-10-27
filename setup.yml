@@ -96,6 +96,7 @@
     lector_compose_path: "{{ lector_dir }}/docker-compose.yml"
     lector_uid: "1001"
     lector_gid: "1001"
+    lector_api_url: "http://{{ ansible_facts['default_ipv4']['address'] }}:3457"
 
     # k3s / DetourPilot
     detourpilot_deployment_repo: "https://gitlab.com/detourpilot/deployment.git"
@@ -1181,6 +1182,15 @@
         regexp: "%openrouter_api_key%"
         replace: "{{ openrouter_api_key }}"
       no_log: true
+      tags: [lector, docker]
+
+    - name: Replace API URL placeholder in Lector compose file
+      become: true
+      become_user: root
+      ansible.builtin.replace:
+        path: "{{ lector_compose_path }}"
+        regexp: "%lector_api_url%"
+        replace: "{{ lector_api_url }}"
       tags: [lector, docker]
 
     - name: Bring up Lector compose
