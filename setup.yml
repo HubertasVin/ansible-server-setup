@@ -1138,6 +1138,8 @@
       tags: [tailscale, docker]
 
     - name: Join the tailnet
+      become: true
+      become_user: root
       ansible.builtin.command:
         argv: "{{ tailscale_up_argv }}"
       when:
@@ -1159,6 +1161,8 @@
       tags: [tailscale, docker]
 
     - name: Serve the service ports to the tailnet
+      become: true
+      become_user: root
       ansible.builtin.command:
         argv:
           - tailscale
