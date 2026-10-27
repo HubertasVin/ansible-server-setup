@@ -28,7 +28,10 @@
       prompt: |-
         ─── Tailscale auth key — only used to join a node that is not on the
         tailnet yet. Leave empty if this host is already joined.
-        Generate at: https://login.tailscale.com/admin/settings/keys
+        → Add tag:server with owner autogroup:admin at:
+          https://console.tailscale.com/admin/acls/visual/tags
+        → Generate the key with that tag:
+          https://login.tailscale.com/admin/settings/keys
         ─────────────────────────────────────────────────────────────────────────
       private: true
       default: ""
@@ -596,17 +599,12 @@
       notify: Reload nginx
       tags: [nginx, tls]
 
-    - name: WebSocket upgrade map (used by Immich)
+    - name: Remove the WebSocket upgrade map (only Immich used it)
       become: true
       become_user: root
-      ansible.builtin.copy:
-        dest: /etc/nginx/conf.d/00_websocket_map.conf
-        mode: "0644"
-        content: |
-          map $http_upgrade $connection_upgrade {
-            default upgrade;
-            ''      close;
-          }
+      ansible.builtin.file:
+        path: /etc/nginx/conf.d/00_websocket_map.conf
+        state: absent
       notify: Reload nginx
       tags: [nginx]
 
@@ -622,7 +620,6 @@
           - -l
           - listen 443
           - /etc/nginx/conf.d/{{ jelly_domain }}.conf
-          - /etc/nginx/conf.d/{{ immich_domain }}.conf
           - /etc/nginx/conf.d/{{ aichat_domain }}.conf
           - /etc/nginx/conf.d/{{ roamermaps_api_domain }}.conf
       register: vhost_tls_files
@@ -657,44 +654,14 @@
       when: ('/etc/nginx/conf.d/' ~ jelly_domain ~ '.conf') not in vhost_tls_files.stdout_lines
       tags: [nginx]
 
-    - name: Proxy for {{ immich_domain }}
+    - name: Remove the public vhost for {{ immich_domain }}
       become: true
       become_user: root
-      ansible.builtin.copy:
-        dest: /etc/nginx/conf.d/{{ immich_domain }}.conf
-        mode: "0644"
-        content: |
-          server {
-              listen 80;
-              listen [::]:80;
-              server_name {{ immich_domain }};
-              client_max_body_size 5000M;
-
-              include /etc/nginx/snippets/letsencrypt.conf;
-
-              proxy_set_header Host              $http_host;
-              proxy_set_header X-Real-IP         $remote_addr;
-              proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto $scheme;
-              proxy_http_version 1.1;
-              proxy_set_header Upgrade           $http_upgrade;
-              proxy_set_header Connection        $connection_upgrade;
-
-              proxy_read_timeout  600s;
-              proxy_send_timeout  600s;
-              send_timeout        600s;
-
-              location / {
-                  proxy_pass http://127.0.0.1:2283;
-              }
-
-              location = /.well-known/immich {
-                  proxy_pass http://127.0.0.1:2283;
-              }
-          }
+      ansible.builtin.file:
+        path: /etc/nginx/conf.d/{{ immich_domain }}.conf
+        state: absent
       notify: Reload nginx
-      when: ('/etc/nginx/conf.d/' ~ immich_domain ~ '.conf') not in vhost_tls_files.stdout_lines
-      tags: [nginx]
+      tags: [nginx, immich]
 
     - name: Proxy for {{ aichat_domain }}
       become: true
@@ -933,25 +900,6 @@
           - --redirect
       register: certbot_jelly
       changed_when: certbot_jelly.stdout is search('Certificate not yet due for renewal') | ternary(false, certbot_jelly.rc == 0)
-      when: not (testing_mode | default(false) | bool)
-      tags: [tls]
-
-    - name: Issue cert for {{ immich_domain }}
-      become: true
-      become_user: root
-      ansible.builtin.command:
-        argv:
-          - certbot
-          - --nginx
-          - -d
-          - "{{ immich_domain }}"
-          - --non-interactive
-          - --agree-tos
-          - --email
-          - "{{ certbot_email }}"
-          - --redirect
-      register: certbot_immich
-      changed_when: certbot_immich.stdout is search('Certificate not yet due for renewal') | ternary(false, certbot_immich.rc == 0)
       when: not (testing_mode | default(false) | bool)
       tags: [tls]
 
