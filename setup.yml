@@ -91,6 +91,12 @@
 
     immich_dir: "{{ apps_dir }}/immich-app"
 
+    # Lector
+    lector_dir: "{{ apps_dir }}/lector"
+    lector_compose_path: "{{ lector_dir }}/docker-compose.yml"
+    lector_uid: "1001"
+    lector_gid: "1001"
+
     # k3s / DetourPilot
     detourpilot_deployment_repo: "https://gitlab.com/detourpilot/deployment.git"
     detourpilot_k8s_dir: "{{ apps_dir }}/detourpilot/k8s"
@@ -1132,6 +1138,60 @@
       retries: 5
       delay: 60
       tags: [immich]
+
+    # Setup Lector (OpenRouter-backed LLM)
+    - name: Ensure ~/apps/lector exists
+      become: true
+      become_user: root
+      ansible.builtin.file:
+        path: "{{ lector_dir }}"
+        state: directory
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0755"
+      tags: [lector, docker]
+
+    - name: Ensure Lector data dir exists
+      become: true
+      become_user: root
+      ansible.builtin.file:
+        path: "{{ lector_dir }}/data"
+        state: directory
+        owner: "{{ lector_uid }}"
+        group: "{{ lector_gid }}"
+        mode: "0755"
+      tags: [lector, docker]
+
+    - name: Copy docker compose for Lector
+      become: true
+      become_user: root
+      ansible.builtin.template:
+        src: lector-docker-compose.yml
+        dest: "{{ lector_compose_path }}"
+        owner: "{{ server_main_user }}"
+        group: "{{ server_main_user }}"
+        mode: "0644"
+      tags: [lector, docker]
+
+    - name: Replace OpenRouter API key placeholder in Lector compose file
+      become: true
+      become_user: root
+      ansible.builtin.replace:
+        path: "{{ lector_compose_path }}"
+        regexp: "%openrouter_api_key%"
+        replace: "{{ openrouter_api_key }}"
+      no_log: true
+      tags: [lector, docker]
+
+    - name: Bring up Lector compose
+      community.docker.docker_compose_v2:
+        project_src: "{{ lector_dir }}"
+        state: present
+      register: lector_up
+      until: lector_up is not failed
+      retries: 5
+      delay: 60
+      tags: [lector, docker]
 
   handlers:
     - name: Reload firewalld

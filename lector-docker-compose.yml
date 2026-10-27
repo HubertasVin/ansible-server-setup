@@ -1,0 +1,35 @@
+services:
+  lector:
+    image: registry.lector.dev/lector:latest
+    container_name: lector
+    restart: unless-stopped
+    ports:
+      - "3400:3000"
+      - "3457:3457"
+    environment:
+      - NODE_ENV=production
+      - LECTOR_MODE=${LECTOR_MODE:-selfhost}
+      - LLM_PROVIDER=openai
+      - OPENAI_COMPAT_URL=https://openrouter.ai/api/v1
+      - OPENAI_COMPAT_MODEL=openai/gpt-6-luna:floor
+      - OPENAI_COMPAT_API_KEY=%openrouter_api_key%
+      - CLASSIFY_WORKER=${CLASSIFY_WORKER:-1}
+      - DICT_LANGS=${DICT_LANGS:-}
+    volumes:
+      - ./data:/app/data:z
+      - lector-dict:/app/dict
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  lector-dict:
