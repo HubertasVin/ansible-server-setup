@@ -100,7 +100,9 @@
     tailscale_ports: [3400, 3457, 2283]
     # Tagged devices carry no node-key expiry; the tag must exist in the ACL's tagOwners.
     tailscale_tags: "tag:server"
-    tailscale_up_argv: "{{ ['tailscale', 'up', '--auth-key=' + tailscale_authkey] + (['--advertise-tags=' + tailscale_tags] if tailscale_tags | length > 0 else []) }}"
+    tailscale_up_argv: >-
+      {{ ['tailscale', 'up', '--auth-key=' + tailscale_authkey]
+      + (['--advertise-tags=' + tailscale_tags] if tailscale_tags | length > 0 else []) }}
 
     borg_user: borguser
     borg_password: "{{ borg_repo_password }}"
@@ -356,8 +358,11 @@
       tags: [users, docker]
 
     - name: Initialize Postgres cluster
+      become: true
+      become_user: root
       ansible.builtin.command: postgresql-setup --initdb
       when: not pg_cluster.stat.exists
+      changed_when: true
 
     # Jellyfin media library (/srv/media, shared with the jellyfin service user)
     - name: Ensure jellyfin group exists
