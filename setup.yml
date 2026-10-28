@@ -32,6 +32,14 @@
           https://console.tailscale.com/admin/acls/visual/tags
         → Generate the key with that tag:
           https://login.tailscale.com/admin/settings/keys
+        ── One-time DNS setup, outside this playbook ───────────────────────────
+          1. Public DNS: an A record per name in tailnet_names pointing at this
+             host's PUBLIC ip.
+          2. Tailscale admin → DNS → Search Domains → Add search domain… → one
+             entry per name in tailnet_names.
+          3. Tailscale admin → DNS → Nameservers → Add nameserver ▾ → Custom… →
+             the tailnet IP → enable "Restrict to search domain" → pick one of
+             the names → Add. Toggle Use with exit node.
         ─────────────────────────────────────────────────────────────────────────
       private: true
       default: ""
@@ -1382,6 +1390,17 @@
         owner: "{{ lector_uid }}"
         group: "{{ lector_gid }}"
         mode: "0755"
+      tags: [lector, docker]
+
+    - name: Repair ownership inside the Lector data dir
+      become: true
+      become_user: root
+      ansible.builtin.file:
+        path: "{{ lector_dir }}/data"
+        state: directory
+        owner: "{{ lector_uid }}"
+        group: "{{ lector_gid }}"
+        recurse: true
       tags: [lector, docker]
 
     - name: Copy docker compose for Lector
