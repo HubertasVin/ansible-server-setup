@@ -1,4 +1,12 @@
 services:
+  lector-perms:
+    image: alpine:3.20
+    user: root
+    volumes:
+      - ./data:/app/data:z
+    command: ["sh", "-c", "chown -R 1001:1001 /app/data && echo perms-fixed"]
+    restart: "no"
+
   lector:
     image: registry.lector.dev/lector:latest
     container_name: lector
