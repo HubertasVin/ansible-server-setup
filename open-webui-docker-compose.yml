@@ -7,6 +7,7 @@ services:
       - "3003:8080"
     # depends_on:
     #   - searxng
+    pull_policy: always
     environment:
       # Force env vars to override persisted Admin UI settings
       - ENABLE_PERSISTENT_CONFIG=false
